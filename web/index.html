@@ -76,19 +76,59 @@
   .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--suave); flex: none; }
   .solapa small { color: var(--suave); font-weight: 400; font-variant-numeric: tabular-nums; }
   .error { color: var(--critico); font-size: .9rem; margin-top: 8px; }
+  .solapa.general { font-weight: 600; }
+
+  /* Vista general */
+  .riesgo { display: flex; align-items: center; gap: 16px; border-left: 8px solid var(--color, var(--suave)); margin-bottom: 16px; }
+  .riesgo .luz { width: 54px; height: 54px; border-radius: 50%; flex: none; background: var(--color, var(--suave));
+                 box-shadow: 0 0 0 6px color-mix(in srgb, var(--color, var(--suave)) 22%, transparent); }
+  .riesgo b { font-size: 1.5rem; display: block; line-height: 1.15; }
+  .riesgo ul { margin: 4px 0 0; padding-left: 18px; color: var(--suave); font-size: .9rem; }
+  .riesgo .meta { margin-left: auto; text-align: right; color: var(--suave); font-size: .82rem; }
+  @media (max-width: 640px) { .riesgo { flex-wrap: wrap; } .riesgo .meta { margin-left: 0; text-align: left; flex-basis: 100%; } }
+  .camaras { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 16px; }
+  .cam { padding: 0; overflow: hidden; display: flex; flex-direction: column; text-decoration: none; color: inherit;
+         border-top: 5px solid var(--color, var(--suave)); transition: transform .15s; }
+  .cam:hover { transform: translateY(-2px); }
+  .cam img { border-radius: 0; object-fit: cover; }
+  .cam .cuerpo { padding: 10px 14px 12px; display: grid; gap: 4px; }
+  .cam .nombre { font-weight: 600; }
+  .cam .fila { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .cam .g-nivel { font-size: 2.1rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .cam .g-etiqueta { padding: 2px 10px; border-radius: 999px; color: #fff; font-size: .82rem; font-weight: 600; background: var(--color, var(--suave)); }
+  .cam .g-ritmo { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--color-ritmo, var(--suave)); }
+  .cam small { color: var(--suave); font-size: .8rem; }
+  .cam canvas { height: 44px; margin-top: 4px; }
   a { color: var(--agua); }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <h1>Nivel del canal</h1>
-    <span><span id="lugar"></span> · <a id="video" href="#" target="_blank" rel="noopener">ver en YouTube</a> · <a href="panel">panel general</a></span>
+    <h1>Nivel de los canales</h1>
+    <span><span id="lugar"></span><span id="enlace-video"> · <a id="video" href="#" target="_blank" rel="noopener">ver en YouTube</a></span></span>
   </header>
 
   <nav class="solapas" id="solapas" role="tablist" aria-label="Cámaras"></nav>
 
-  <div class="rejilla">
+  <div id="vista-general" hidden>
+    <section class="panel riesgo" id="riesgo">
+      <div class="luz"></div>
+      <div><b id="riesgo-titulo">Cargando…</b><ul id="riesgo-motivos"></ul></div>
+      <div class="meta" id="riesgo-meta"></div>
+    </section>
+    <section class="camaras" id="tarjetas"></section>
+    <section class="panel">
+      <h2>Clima en Bahía Blanca</h2>
+      <div class="clima" id="g-clima"></div>
+      <h3 class="subtitulo">Lluvia en la cuenca del Napostá</h3>
+      <p class="detalle">La lluvia en las sierras tarda horas en llegar a la ciudad: si llueve fuerte arriba, los canales pueden subir aunque acá no llueva.</p>
+      <div class="tabla-cont"><table class="cuenca" id="g-cuenca"></table></div>
+      <p class="detalle fuente">Datos de modelo meteorológico (<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>), no de pluviómetros. Los umbrales de lluvia del semáforo son provisorios.</p>
+    </section>
+  </div>
+
+  <div class="rejilla" id="vista-camara" hidden>
     <section class="panel">
       <h2>Estado actual</h2>
       <div class="estado">
@@ -186,17 +226,26 @@ function pintarRitmo() {
   caja.innerHTML = `<b>${signo}${v.toLocaleString('es-AR')} %/h</b><span>${info.flecha} ${t.etiqueta}</span><small>${nota}</small>`;
 }
 
-let datos = null, ultimaFoto = '', videoActual = '';
-let cam = decodeURIComponent(location.hash.slice(1)) || '';
+let datos = null, general = null, ultimaFoto = '', videoActual = '';
+let cam = decodeURIComponent(location.hash.slice(1)) || 'general';
+const RIESGO = [
+  { titulo: 'Todo normal', color: '--normal' },
+  { titulo: 'Atención', color: '--subiendo' },
+  { titulo: 'Alerta', color: '--alto' },
+  { titulo: 'Crítico', color: '--critico' },
+];
 
-function solapas(lista) {
+function solapas(lista, riesgoNivel) {
   const nav = document.getElementById('solapas');
-  nav.innerHTML = lista.map(c => {
+  const rc = riesgoNivel == null ? css('--suave') : css(RIESGO[riesgoNivel].color);
+  nav.innerHTML = `<button class="solapa general" role="tab" aria-selected="${cam === 'general'}" data-cam="general">
+      <span class="punto" style="background:${rc}"></span>Panel general<small>${riesgoNivel == null ? '' : RIESGO[riesgoNivel].titulo}</small></button>` +
+    lista.map(c => {
     const col = c.estado ? css(COLORES[c.estado] || '--suave') : css('--suave');
     const t = TENDENCIAS[c.tendencia];
     const niv = (c.nivel == null ? '–' : Math.round(c.nivel) + '%') +
       (t && t.flecha ? ` <span class="flecha-t" style="color:${css(t.color)}" title="${c.tendencia}">${t.flecha}</span>` : '');
-    return `<button class="solapa" role="tab" aria-selected="${c.id === datos.id}" data-cam="${c.id}">
+    return `<button class="solapa" role="tab" aria-selected="${c.id === cam}" data-cam="${c.id}">
       <span class="punto" style="background:${col}"></span>${c.nombre}<small>${niv}</small></button>`;
   }).join('');
 }
@@ -205,7 +254,7 @@ document.getElementById('solapas').addEventListener('click', e => {
   const b = e.target.closest('[data-cam]');
   if (!b || b.dataset.cam === cam) return;
   cam = b.dataset.cam;
-  history.replaceState(null, '', '#' + encodeURIComponent(cam));
+  history.replaceState(null, '', cam === 'general' ? location.pathname : '#' + encodeURIComponent(cam));
   ultimaFoto = '';
   actualizar();
 });
@@ -221,10 +270,99 @@ document.getElementById('solapas').addEventListener('click', e => {
   });
 })();
 
+function mostrarVista(esGeneral) {
+  document.getElementById('vista-general').hidden = !esGeneral;
+  document.getElementById('vista-camara').hidden = esGeneral;
+  document.getElementById('enlace-video').hidden = esGeneral;
+  if (esGeneral && videoActual) {   // corta el video al salir de una camara
+    document.getElementById('vivo').src = 'about:blank'; videoActual = '';
+  }
+}
+
+const RITMO_G = { 'sube rápido': ['⇈', '--critico'], 'sube': ['↑', '--subiendo'], 'baja': ['↓', '--normal'], 'estable': ['→', '--normal'] };
+
+function tarjeta(c) {
+  const a = c.actual, t = c.tendencia;
+  const col = a ? css(COLORES[a.estado] || '--suave') : css('--suave');
+  let ritmo = '<small>ritmo: faltan mediciones</small>';
+  if (t && t.v != null) {
+    const [flecha, colR] = RITMO_G[t.etiqueta] || ['', '--suave'];
+    ritmo = `<span class="g-ritmo" style="--color-ritmo:${css(colR)}">${flecha} ${t.v > 0 ? '+' : ''}${(Math.round(t.v * 10) / 10).toLocaleString('es-AR')} %/h</span>`;
+    if (t.eta) ritmo += ` <small>llega a ${t.eta.umbral} % en ~${t.eta.minutos < 60 ? t.eta.minutos + ' min' : (Math.round(t.eta.minutos / 6) / 10).toLocaleString('es-AR') + ' h'}</small>`;
+  }
+  const nota = c.error ? `<small style="color:${css('--critico')}">Falló la captura</small>`
+    : c.midiendo ? '<small>Capturando…</small>' : a && a.nota ? `<small>${a.nota}</small>` : '';
+  return `<a class="panel cam" href="#${encodeURIComponent(c.id)}" style="--color:${col}" title="Ver ${c.nombre} en detalle">
+    <img data-cam="${c.id}" alt="Última captura de ${c.nombre}">
+    <div class="cuerpo">
+      <div class="nombre">${c.nombre}</div>
+      <div class="fila"><span class="g-nivel">${a ? Math.round(a.nivel) + '%' : '–'}</span>
+        <span class="g-etiqueta">${a ? NOMBRES[a.estado] || a.estado : 'sin datos'}</span></div>
+      <div class="fila">${ritmo}</div>
+      <canvas data-graf="${c.id}"></canvas>
+      <div class="fila"><small>Medido ${a ? a.fecha_hora.slice(11) : '–'} · últimas 6 h</small>${nota}</div>
+    </div></a>`;
+}
+
+function mini(c) {
+  const cv = document.querySelector(`canvas[data-graf="${c.id}"]`);
+  if (!cv || !cv.clientWidth) return;
+  const r = devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * r; cv.height = H * r;
+  const g = cv.getContext('2d'); g.scale(r, r);
+  const fin = Date.now(), ini = fin - 6 * 3600e3;
+  const x = ms => (ms - ini) / (fin - ini) * W, y = v => H - 2 - Math.min(v, 100) / 100 * (H - 4);
+  [15, 40, 70].forEach((u, i) => {
+    g.strokeStyle = css(['--subiendo', '--alto', '--critico'][i]); g.globalAlpha = .45; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(0, y(u)); g.lineTo(W, y(u)); g.stroke();
+  });
+  g.globalAlpha = 1; g.setLineDash([]);
+  const pts = c.historial.map(p => [x(new Date(p.t.replace(' ', 'T')).getTime()), y(p.nivel)]).filter(p => p[0] >= 0);
+  if (!pts.length) return;
+  g.beginPath(); g.moveTo(pts[0][0], H); pts.forEach(p => g.lineTo(p[0], p[1])); g.lineTo(pts[pts.length - 1][0], H);
+  g.globalAlpha = .2; g.fillStyle = css('--agua'); g.fill(); g.globalAlpha = 1;
+  g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+  g.strokeStyle = css('--agua'); g.lineWidth = 2; g.stroke();
+}
+
+function metaGeneral() {
+  const g = general, el = document.getElementById('riesgo-meta');
+  const falta = Math.round(g.proxima - g.ahora - (Date.now() - g.recibido) / 1000);
+  el.innerHTML = (g.midiendo ? `Midiendo ${g.midiendo}…` :
+      falta > 0 ? `Próxima medición en ${Math.floor(falta / 60)}:${String(falta % 60).padStart(2, '0')}` : 'Empezando la próxima ronda…') +
+    `<br>Cada ${g.intervalo_min} min, ${g.camaras.length} cámaras`;
+}
+
+function pintarGeneral() {
+  const g = general;
+  mostrarVista(true);
+  solapas(g.camaras.map(c => ({ id: c.id, nombre: c.nombre, nivel: c.actual && c.actual.nivel,
+    estado: c.actual && c.actual.estado, tendencia: c.tendencia && c.tendencia.etiqueta })), g.riesgo.nivel);
+  document.getElementById('lugar').textContent = 'Todas las cámaras';
+  document.title = 'Nivel de los canales · Panel general';
+
+  const info = RIESGO[g.riesgo.nivel];
+  document.getElementById('riesgo').style.setProperty('--color', css(info.color));
+  document.getElementById('riesgo-titulo').textContent = info.titulo;
+  document.getElementById('riesgo-motivos').innerHTML = g.riesgo.motivos.length
+    ? g.riesgo.motivos.map(m => `<li>${m}</li>`).join('')
+    : '<li>Ningún canal sube y no hay lluvia fuerte prevista.</li>';
+  metaGeneral();
+
+  document.getElementById('tarjetas').innerHTML = g.camaras.map(tarjeta).join('');
+  g.camaras.forEach(c => {
+    const img = document.querySelector(`img[data-cam="${c.id}"]`);
+    img.src = 'ultimo.jpg?ancho=640&cam=' + encodeURIComponent(c.id) + '&t=' + encodeURIComponent(c.actual ? c.actual.fecha_hora : '');
+    mini(c);
+  });
+  pintarClima(g, ['g-clima', 'g-cuenca', null]);
+}
+
 function pintar() {
   if (!datos) return;
   cam = datos.id;
-  solapas(datos.camaras);
+  mostrarVista(false);
+  solapas(datos.camaras, datos.riesgo_nivel);
   document.getElementById('lugar').textContent = datos.nombre;
   document.title = 'Nivel del canal · ' + datos.nombre;
   document.getElementById('video').href = 'https://www.youtube.com/watch?v=' + datos.video;
@@ -279,11 +417,11 @@ function pintar() {
 const PUNTOS_CARDINALES = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
 const mm = v => (Math.round(v * 10) / 10).toLocaleString('es-AR') + ' mm';
 
-function pintarClima() {
-  const k = datos.clima, caja = document.getElementById('clima');
-  const fuente = document.getElementById('clima-fuente');
+function pintarClima(d = datos, ids = ['clima', 'cuenca', 'clima-fuente']) {
+  const k = d.clima, caja = document.getElementById(ids[0]);
+  const fuente = document.getElementById(ids[2]) || { set innerHTML(v) {}, set textContent(v) {} };
   if (!k) {
-    caja.innerHTML = `<p class="detalle">${datos.clima_error ? 'No se pudo traer el clima: ' + datos.clima_error : 'Cargando clima…'}</p>`;
+    caja.innerHTML = `<p class="detalle">${d.clima_error ? 'No se pudo traer el clima: ' + d.clima_error : 'Cargando clima…'}</p>`;
     fuente.textContent = '';
     return;
   }
@@ -300,7 +438,7 @@ function pintarClima() {
     dato(mm(k.lluvia_24h), 'Lluvia 24 h', '', k.lluvia_24h > 0) +
     dato(mm(k.prevista_6h), 'Prevista 6 h', `prob. máx. ${Math.round(k.prob_max_6h)} %`, k.prevista_6h > 0) +
     dato(Math.round(k.temp) + ' °C', 'Temperatura');
-  const tabla = document.getElementById('cuenca');
+  const tabla = document.getElementById(ids[1]);
   const celda = v => `<td class="${v >= 1 ? 'llueve' : ''}">${mm(v)}</td>`;
   tabla.innerHTML = (k.cuenca || []).length
     ? '<thead><tr><th>Lugar</th><th>Últimas 24 h</th><th>Últimas 72 h</th><th>Próximas 6 h</th><th>Próximas 24 h</th><th>Pico previsto</th></tr></thead><tbody>' +
@@ -310,10 +448,11 @@ function pintarClima() {
     : '';
   fuente.innerHTML = `Datos de modelo meteorológico (<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>) para Bahía Blanca y puntos aproximados de la cuenca, ` +
     `no de pluviómetros. Actualizado ${k.hora.slice(11, 16)}.` +
-    (datos.clima_error ? ' Último intento falló: ' + datos.clima_error : '');
+    (d.clima_error ? ' Último intento falló: ' + d.clima_error : '');
 }
 
 function cuenta() {
+  if (cam === 'general') { if (general) metaGeneral(); return; }
   const p = document.getElementById('proxima');
   if (!datos) return;
   if (datos.midiendo) { p.textContent = 'Capturando esta cámara ahora (tarda unos segundos)…'; return; }
@@ -387,8 +526,15 @@ function grafico() {
 async function actualizar() {
   try {
     const pedida = cam;
-    const r = await fetch('api/estado' + (cam ? '?cam=' + encodeURIComponent(cam) : ''));
-    if (!r.ok) { cam = ''; return actualizar(); }
+    if (cam === 'general') {
+      const d = await (await fetch('api/resumen')).json();
+      if (pedida !== cam) return;
+      general = d; general.recibido = Date.now();
+      pintarGeneral();
+      return;
+    }
+    const r = await fetch('api/estado?cam=' + encodeURIComponent(cam));
+    if (!r.ok) { cam = 'general'; history.replaceState(null, '', location.pathname); return actualizar(); }
     const d = await r.json();
     if (pedida !== cam) return;   // el usuario cambió de solapa mientras tanto
     datos = d; datos.recibido = Date.now();
@@ -399,10 +545,13 @@ async function actualizar() {
 actualizar();
 setInterval(actualizar, 20000);
 setInterval(cuenta, 1000);
-addEventListener('resize', () => datos && grafico());
+addEventListener('resize', () => {
+  if (cam === 'general') { if (general) general.camaras.forEach(mini); }
+  else if (datos) grafico();
+});
 addEventListener('hashchange', () => {
-  const nueva = decodeURIComponent(location.hash.slice(1));
-  if (nueva && nueva !== cam) { cam = nueva; ultimaFoto = ''; actualizar(); }
+  const nueva = decodeURIComponent(location.hash.slice(1)) || 'general';
+  if (nueva !== cam) { cam = nueva; ultimaFoto = ''; actualizar(); }
 });
 </script>
 </body>

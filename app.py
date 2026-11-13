@@ -201,6 +201,7 @@ def estado_camara(cam):
                           if situacion["midiendo"] and situacion["midiendo"] != cam else None),
         "error": situacion["errores"].get(cam),
         "clima": clima["datos"], "clima_error": clima["error"],
+        "riesgo_nivel": resumen_general()["riesgo"]["nivel"],
     }
 
 
@@ -285,7 +286,11 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "/":
             self._enviar((WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         elif ruta in ("/panel", "/panel/"):
-            self._enviar((WEB / "panel.html").read_bytes(), "text/html; charset=utf-8")
+            # El panel general ahora es la solapa inicial de la pagina principal.
+            self.send_response(301)
+            self.send_header("Location", (PREFIJO or "") + "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif ruta == "/api/resumen":
             self._enviar(json.dumps(resumen_general()).encode(), "application/json")
         elif ruta == "/api/estado":
