@@ -51,7 +51,7 @@ La página funciona sola. Si además querés avisos por Telegram, copiá `.env.e
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Token del bot que da @BotFather. Sin esto, Telegram queda desactivado y la página anda igual. |
 | `TELEGRAM_CHAT_ID` | Tu chat. Si lo dejás vacío, se registra el primer chat privado que le escriba al bot; los demás se ignoran. |
-| `TELEGRAM_AVISO_CADA` | Cada cuántos puntos de subida de un canal te avisa (por defecto 5). |
+| `TELEGRAM_UMBRALES` | Niveles de un canal que disparan un aviso al subir, separados por coma (por defecto `15,40,70`). |
 | `TELEGRAM_CANAL` | Opcional y apagado por defecto: canal público (por ejemplo `@bahiaalerta`) donde el bot publica los avisos importantes. El bot tiene que ser administrador del canal. |
 
 El `.env` está en `.gitignore`: nunca lo subas. Un mismo bot no puede correr en dos servidores a la vez.

@@ -7,13 +7,14 @@ Configuracion (archivo .env, fuera de git):
                         datos/telegram_chat.json (los demas chats se ignoran).
 
     TELEGRAM_CANAL      (opcional) canal publico, p. ej. @bahiaalerta, donde el bot es administrador
-    TELEGRAM_AVISO_CADA (opcional) cada cuantos puntos de subida te avisa a vos (por defecto 5)
+    TELEGRAM_UMBRALES   (opcional) niveles de un canal que disparan aviso al subir (por defecto 15,40,70)
 
 Avisos importantes, a tu chat y al canal (sin repetir mientras el estado no cambie):
     - el semaforo general sube o vuelve a la normalidad
     - un canal cambia de estado (Subiendo, Alto, Critico) o pasa a "sube rapido", con la foto
     - el SMN emite una alerta nueva para Bahia Blanca o las sierras
-Avisos personales, solo a tu chat: cada vez que un canal sube otro 5 % (5, 10, 15...).
+Ademas, aviso cuando un canal pasa 15, 40 o 70 % (una vez por subida; coinciden con los
+estados Subiendo, Alto y Critico, asi que llega un solo mensaje por umbral).
 Comandos: /estado, /foto <camara>, /camaras, /ayuda
 """
 import html
@@ -39,12 +40,13 @@ PIE_PUBLICO = ("\n\n<i>Bahía Alerta es experimental y depende de servicios exte
 
 
 class Bot:
-    def __init__(self, token, chat_id, carpeta, obtener_resumen, ruta_foto, url_publica="", canal="", paso=5):
+    def __init__(self, token, chat_id, carpeta, obtener_resumen, ruta_foto, url_publica="", canal="",
+                 umbrales=(15, 40, 70)):
         self.token = token
         self.chat_id = str(chat_id).strip() or None
-        # Canal publico (opcional): recibe los avisos importantes, no los de cada 5 %.
+        # Canal publico (opcional, apagado si queda vacio).
         self.canal = str(canal).strip() or None
-        self.paso = paso   # cada cuantos puntos de subida te avisa a vos
+        self.umbrales = sorted(umbrales)   # niveles de un canal que disparan aviso al subir
         self.archivo_chat = carpeta / "telegram_chat.json"
         self.archivo_estado = carpeta / "telegram_estado.json"
         self.obtener_resumen = obtener_resumen      # funcion -> dict de app.resumen_general()
@@ -205,19 +207,18 @@ class Bot:
                 self._marcar(f"{c['id']}:{est}:{rit}")
                 avisado_estado = True
 
-            # Aviso personal cada `paso` puntos de subida (solo a tu chat). Con histeresis:
-            # el escalon solo baja cuando el nivel cae un paso entero, asi el ruido (4 % <-> 6 %)
-            # no dispara avisos repetidos.
+            # Aviso al pasar cada umbral (15, 40 y 70 % por defecto), una sola vez por subida.
+            # Histeresis: el umbral se "rearma" recien cuando el nivel baja 5 puntos por debajo,
+            # asi el ruido alrededor del umbral (14 % <-> 16 %) no repite avisos.
             escalon = p.get("escalon", 0)
-            actual = int(a["nivel"] // self.paso) * self.paso
+            actual = max((u for u in self.umbrales if a["nivel"] >= u), default=0)
             if actual > escalon:
-                if not primera and actual >= self.paso and not avisado_estado:
+                if not primera and not avisado_estado:
                     self.enviar_foto(self.ruta_foto(c["id"]),
-                                     f"📈 <b>{html.escape(c['nombre'])}</b> subió a {a['nivel']:.0f}% "
-                                     f"(pasó el {actual} %){ritmo}.{extra}")
+                                     f"📈 <b>{html.escape(c['nombre'])}</b> pasó el {actual} %: está en {a['nivel']:.0f}%{ritmo}.{extra}")
                 escalon = actual
-            elif a["nivel"] <= escalon - self.paso:
-                escalon = int(a["nivel"] // self.paso) * self.paso
+            elif escalon and a["nivel"] <= escalon - 5:
+                escalon = max((u for u in self.umbrales if a["nivel"] >= u), default=0)
             previos[c["id"]] = {"estado": est, "ritmo": rit, "escalon": escalon}
 
         # Alertas nuevas del SMN
@@ -306,8 +307,9 @@ def desde_entorno(carpeta, obtener_resumen, ruta_foto, url_publica=""):
     if not token:
         return None
     try:
-        paso = max(1, int(os.environ.get("TELEGRAM_AVISO_CADA", "5")))
+        umbrales = [int(x) for x in os.environ.get("TELEGRAM_UMBRALES", "15,40,70").split(",") if x.strip()]
     except ValueError:
-        paso = 5
+        umbrales = []
+    umbrales = [u for u in umbrales if 0 < u <= 100] or [15, 40, 70]
     return Bot(token, os.environ.get("TELEGRAM_CHAT_ID", ""), carpeta, obtener_resumen, ruta_foto, url_publica,
-               os.environ.get("TELEGRAM_CANAL", ""), paso)
+               os.environ.get("TELEGRAM_CANAL", ""), umbrales)
