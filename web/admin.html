@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Bahía Alerta · Administración</title>
+<link rel="icon" type="image/png" href="../favicon.png">
+<style>
+  :root {
+    --fondo: #f3f5f7; --panel: #ffffff; --texto: #17202a; --suave: #5d6b78; --borde: #dde3e9;
+    --agua: #2f86d6; --ok: #1e9e5a; --mal: #d22f2f; --aviso: #d99a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fondo: #10151a; --panel: #1a2128; --texto: #e8edf2; --suave: #93a1ae; --borde: #2b343d; --agua: #3d97e8; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--fondo); color: var(--texto); font: 16px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px; }
+  header img { width: 44px; height: 44px; }
+  h1 { font-size: 1.4rem; margin: 0; flex: 1; }
+  h2 { font-size: 1.05rem; margin: 0 0 4px; }
+  a { color: var(--agua); }
+  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .nota { color: var(--suave); font-size: .88rem; margin: 4px 0 12px; }
+  label { display: block; font-size: .88rem; color: var(--suave); margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; font: inherit; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--borde);
+    background: var(--fondo); color: var(--texto); }
+  input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--agua); outline-offset: 2px; }
+  .campos { display: grid; gap: 12px 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-bottom: 12px; }
+  .marca { display: flex; align-items: center; gap: 8px; color: var(--texto); font-size: 1rem; }
+  .marca input { width: 18px; height: 18px; }
+  button { font: inherit; cursor: pointer; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--borde);
+           background: var(--panel); color: var(--texto); }
+  button.principal { background: var(--agua); border-color: var(--agua); color: #fff; font-weight: 600; }
+  button.peligro { border-color: var(--mal); color: var(--mal); }
+  button:disabled { opacity: .5; cursor: default; }
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .solapas { display: flex; flex-wrap: wrap; gap: 0 6px; border-bottom: 1px solid var(--borde); margin-bottom: 16px; }
+  .solapas button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; color: var(--suave); padding: 10px 14px; }
+  .solapas button[aria-selected=true] { color: var(--texto); border-bottom-color: var(--agua); font-weight: 600; }
+  .estado { min-height: 1.4em; font-size: .92rem; margin-top: 10px; }
+  .estado.ok { color: var(--ok); } .estado.mal { color: var(--mal); }
+  .lienzo { position: relative; border-radius: 8px; overflow: hidden; background: #000; touch-action: none; user-select: none; }
+  .lienzo img { display: block; width: 100%; aspect-ratio: 16/9; }
+  .lienzo svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .punta { fill: #fff; stroke: #000; stroke-width: 4; cursor: grab; }
+  .orilla { fill: #37b6ff; stroke: #003a66; stroke-width: 4; cursor: ew-resize; }
+  .leyenda { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem; color: var(--suave); margin-top: 8px; }
+  .leyenda i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 5px; border: 2px solid #000; }
+  #ingreso { max-width: 380px; margin: 8vh auto 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="../logo.png" alt="">
+    <h1>Bahía Alerta · Administración</h1>
+    <a href="../">Ver la página</a>
+    <button id="salir" hidden>Salir</button>
+  </header>
+
+  <section class="panel" id="ingreso" hidden>
+    <h2>Ingresar</h2>
+    <p class="nota" id="ingreso-nota">Escribí la clave de administración.</p>
+    <form id="form-ingreso">
+      <label for="clave">Clave</label>
+      <input type="password" id="clave" autocomplete="current-password" required>
+      <div class="acciones"><button class="principal" type="submit">Ingresar</button></div>
+      <p class="estado mal" id="ingreso-estado" role="alert"></p>
+    </form>
+  </section>
+
+  <div id="dentro" hidden>
+    <nav class="solapas" role="tablist">
+      <button role="tab" aria-selected="true" data-solapa="camaras">Cámaras y líneas</button>
+      <button role="tab" aria-selected="false" data-solapa="general">General</button>
+      <button role="tab" aria-selected="false" data-solapa="estadisticas">Estadísticas</button>
+    </nav>
+
+    <div data-vista="camaras">
+      <section class="panel">
+        <div class="campos">
+          <div><label for="cam">Cámara</label><select id="cam"></select></div>
+          <div><label for="nombre">Nombre que se muestra</label><input type="text" id="nombre" maxlength="60"></div>
+          <div><label for="video">Video de YouTube (código de 11 caracteres)</label><input type="text" id="video" maxlength="11"></div>
+          <div style="align-self:end"><label class="marca"><input type="checkbox" id="activa"> Cámara activa (se mide y se muestra)</label></div>
+        </div>
+        <h2>Líneas de medición</h2>
+        <p class="nota">Arrastrá las puntas blancas hasta el borde superior del canal de cada lado: así 100&nbsp;% es el canal lleno.
+          Los puntos celestes marcan dónde empieza y termina el agua normal en esa línea; lo que cambie entre ellos no cuenta como subida.</p>
+        <div class="lienzo"><img id="base" alt="Imagen de la cámara para marcar las líneas"><svg id="editor" viewBox="0 0 1920 1080"></svg></div>
+        <div class="leyenda">
+          <span><i style="background:#fff"></i>punta de la línea (borde del canal)</span>
+          <span><i style="background:#37b6ff"></i>orilla del agua normal</span>
+        </div>
+        <div class="acciones">
+          <button class="principal" id="guardar-cam">Guardar cambios</button>
+          <button id="deshacer-cam">Deshacer lo no guardado</button>
+          <button id="fabrica-cam">Volver a los valores originales</button>
+          <button class="peligro" id="recalibrar">Recalibrar esta cámara</button>
+        </div>
+        <p class="nota" style="margin-top:10px">«Recalibrar» borra las imágenes de referencia de la cámara: durante 24 horas vuelve a tomar cada hora como nivel normal.
+          Usalo solo con el canal en su nivel de siempre.</p>
+        <p class="estado" id="estado-cam" role="status"></p>
+      </section>
+    </div>
+
+    <div data-vista="general" hidden>
+      <section class="panel">
+        <h2>Medición</h2>
+        <div class="campos">
+          <div><label for="intervalo">Minutos entre mediciones (2 a 60)</label><input type="number" id="intervalo" min="2" max="60" step="1"></div>
+        </div>
+        <h2>Semáforo: cuándo pasa a «Atención»</h2>
+        <p class="nota">Son valores provisorios; conviene ajustarlos después de ver una crecida real.</p>
+        <div class="campos" id="campos-semaforo"></div>
+        <div class="acciones">
+          <button class="principal" id="guardar-general">Guardar cambios</button>
+          <button id="fabrica-general">Volver a los valores originales</button>
+        </div>
+        <p class="estado" id="estado-general" role="status"></p>
+      </section>
+    </div>
+
+    <div data-vista="estadisticas" hidden>
+      <section class="panel">
+        <h2>Estadísticas</h2>
+        <p class="nota">Próximamente: visitas a la página y clics. Todavía no se registra nada.</p>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const SEMAFORO = {
+  lluvia_6h_mm: 'Lluvia en la ciudad en 6 h, caída o prevista (mm)',
+  lluvia_pico_mm: 'Lluvia prevista en una sola hora (mm)',
+  sierras_24h_mm: 'Lluvia en las sierras en 24 h (mm)',
+  ciudad_24h_mm: 'Lluvia caída en la ciudad en 24 h (mm)',
+  marea_m: 'Marea por encima de lo previsto (m)',
+};
+let cfg = null, defecto = null, permitidas = [], limites = {}, cam = null, borrador = null;
+
+async function pedir(ruta, cuerpo) {
+  const r = await fetch('api/' + ruta, cuerpo === undefined ? {} :
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo) });
+  let datos = {};
+  try { datos = await r.json(); } catch (e) {}
+  if (r.status === 401 && ruta !== 'ingresar') { mostrarIngreso(true); throw new Error('La sesión venció. Ingresá de nuevo.'); }
+  if (!r.ok) throw new Error(datos.error || 'No se pudo completar el pedido.');
+  return datos;
+}
+const decir = (id, texto, tipo = '') => { const e = $(id); e.textContent = texto; e.className = 'estado ' + tipo; };
+
+function mostrarIngreso(activo) {
+  $('dentro').hidden = true; $('salir').hidden = true; $('ingreso').hidden = false;
+  $('form-ingreso').hidden = !activo;
+  $('ingreso-nota').textContent = activo ? 'Escribí la clave de administración.'
+    : 'El panel está desactivado. Para activarlo, completá ADMIN_CLAVE (8 caracteres o más) en el archivo .env del servidor y reinicialo.';
+  if (activo) $('clave').focus();
+}
+
+async function entrar() {
+  const d = await pedir('config');
+  cfg = d.config; defecto = d.defecto; permitidas = d.permitidas; limites = d.limites;
+  $('ingreso').hidden = true; $('dentro').hidden = false; $('salir').hidden = false;
+  $('cam').innerHTML = permitidas.map(c => `<option value="${c}">${cfg.camaras[c].nombre}</option>`).join('');
+  elegirCamara(cam && permitidas.includes(cam) ? cam : permitidas[0]);
+  pintarGeneral();
+}
+
+$('form-ingreso').addEventListener('submit', async e => {
+  e.preventDefault();
+  decir('ingreso-estado', '');
+  try { await pedir('ingresar', { clave: $('clave').value }); $('clave').value = ''; await entrar(); }
+  catch (err) { decir('ingreso-estado', err.message, 'mal'); }
+});
+$('salir').addEventListener('click', async () => { try { await pedir('salir', {}); } catch (e) {} mostrarIngreso(true); });
+
+document.querySelector('.solapas').addEventListener('click', e => {
+  const b = e.target.closest('[data-solapa]'); if (!b) return;
+  document.querySelectorAll('[data-solapa]').forEach(x => x.setAttribute('aria-selected', x === b));
+  document.querySelectorAll('[data-vista]').forEach(v => v.hidden = v.dataset.vista !== b.dataset.solapa);
+});
+
+// ---------------------------------------------------------------- camaras
+const copia = o => JSON.parse(JSON.stringify(o));
+function elegirCamara(id) {
+  cam = id; $('cam').value = id; borrador = copia(cfg.camaras[id]);
+  $('nombre').value = borrador.nombre; $('video').value = borrador.video; $('activa').checked = borrador.activa;
+  $('base').src = 'api/base?cam=' + encodeURIComponent(id) + '&v=' + Date.now();
+  dibujar(); decir('estado-cam', '');
+}
+$('cam').addEventListener('change', () => elegirCamara($('cam').value));
+
+function dibujar() {
+  const svg = $('editor');
+  svg.innerHTML = borrador.cortes.map(([a, b], i) => {
+    const [w0, w1] = borrador.agua[i], p = t => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const [x0, y0] = p(w0), [x1, y1] = p(w1);
+    return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#2ecc40" stroke-width="7" stroke-linecap="round"/>
+      <line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#37b6ff" stroke-width="9" stroke-linecap="round"/>
+      <circle class="orilla" data-l="${i}" data-k="w0" cx="${x0}" cy="${y0}" r="17"/>
+      <circle class="orilla" data-l="${i}" data-k="w1" cx="${x1}" cy="${y1}" r="17"/>
+      <circle class="punta" data-l="${i}" data-k="a" cx="${a[0]}" cy="${a[1]}" r="20"/>
+      <circle class="punta" data-l="${i}" data-k="b" cx="${b[0]}" cy="${b[1]}" r="20"/>
+      <text x="${a[0]}" y="${a[1] - 30}" text-anchor="middle" font-size="40" font-weight="700" fill="#fff" stroke="#000" stroke-width="2">${i + 1}</text>`;
+  }).join('');
+}
+
+let agarrado = null;
+const editor = $('editor');
+function aImagen(e) {
+  const r = editor.getBoundingClientRect();
+  return [Math.min(Math.max((e.clientX - r.left) / r.width * 1920, 0), 1919), Math.min(Math.max((e.clientY - r.top) / r.height * 1080, 0), 1079)];
+}
+editor.addEventListener('pointerdown', e => {
+  const c = e.target.closest('circle'); if (!c) return;
+  agarrado = { l: +c.dataset.l, k: c.dataset.k }; editor.setPointerCapture(e.pointerId); e.preventDefault();
+});
+editor.addEventListener('pointermove', e => {
+  if (!agarrado) return;
+  const [x, y] = aImagen(e), { l, k } = agarrado, [a, b] = borrador.cortes[l];
+  if (k === 'a' || k === 'b') {
+    borrador.cortes[l][k === 'a' ? 0 : 1] = [Math.round(x), Math.round(y)];
+  } else {
+    // proyeccion del puntero sobre la linea -> fraccion entre 0 y 1
+    const dx = b[0] - a[0], dy = b[1] - a[1], t = ((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy);
+    const [w0, w1] = borrador.agua[l];
+    if (k === 'w0') borrador.agua[l][0] = Math.round(Math.min(Math.max(t, 0), w1 - 0.03) * 1000) / 1000;
+    else borrador.agua[l][1] = Math.round(Math.max(Math.min(t, 1), w0 + 0.03) * 1000) / 1000;
+  }
+  dibujar();
+});
+['pointerup', 'pointercancel'].forEach(n => editor.addEventListener(n, () => { agarrado = null; }));
+
+async function guardar(nuevo, idEstado, mensaje) {
+  try {
+    const d = await pedir('config', { config: nuevo });
+    cfg = d.config; decir(idEstado, mensaje, 'ok'); return true;
+  } catch (err) { decir(idEstado, err.message, 'mal'); return false; }
+}
+$('guardar-cam').addEventListener('click', async () => {
+  borrador.nombre = $('nombre').value.trim(); borrador.video = $('video').value.trim(); borrador.activa = $('activa').checked;
+  const nuevo = copia(cfg); nuevo.camaras[cam] = borrador;
+  if (await guardar(nuevo, 'estado-cam', 'Guardado. Se usa a partir de la próxima medición.')) {
+    $('cam').selectedOptions[0].textContent = cfg.camaras[cam].nombre; borrador = copia(cfg.camaras[cam]);
+  }
+});
+$('deshacer-cam').addEventListener('click', () => elegirCamara(cam));
+$('fabrica-cam').addEventListener('click', () => {
+  borrador = copia(defecto.camaras[cam]);
+  $('nombre').value = borrador.nombre; $('video').value = borrador.video; $('activa').checked = borrador.activa;
+  dibujar(); decir('estado-cam', 'Se cargaron los valores originales. Tocá «Guardar cambios» para aplicarlos.');
+});
+$('recalibrar').addEventListener('click', async () => {
+  if (!confirm(`¿Recalibrar «${cfg.camaras[cam].nombre}»? Se borran sus imágenes de referencia y el nivel actual pasa a ser el normal.`)) return;
+  try { const d = await pedir('recalibrar', { cam }); decir('estado-cam', `Recalibrada: se borraron ${d.borradas} referencias.`, 'ok'); }
+  catch (err) { decir('estado-cam', err.message, 'mal'); }
+});
+
+// ---------------------------------------------------------------- general
+function pintarGeneral(origen = cfg) {
+  $('intervalo').value = origen.intervalo_min;
+  $('campos-semaforo').innerHTML = Object.entries(SEMAFORO).map(([k, texto]) =>
+    `<div><label for="s-${k}">${texto}</label><input type="number" id="s-${k}" step="0.1" min="${limites[k][0]}" max="${limites[k][1]}" value="${origen.semaforo[k]}"></div>`).join('');
+}
+$('guardar-general').addEventListener('click', async () => {
+  const nuevo = copia(cfg); nuevo.intervalo_min = +$('intervalo').value;
+  for (const k of Object.keys(SEMAFORO)) nuevo.semaforo[k] = +$('s-' + k).value;
+  if (await guardar(nuevo, 'estado-general', 'Guardado.')) pintarGeneral();
+});
+$('fabrica-general').addEventListener('click', () => {
+  pintarGeneral(defecto); decir('estado-general', 'Se cargaron los valores originales. Tocá «Guardar cambios» para aplicarlos.');
+});
+
+(async () => {
+  try {
+    const s = await pedir('sesion');
+    if (s.dentro) await entrar(); else mostrarIngreso(s.activo);
+  } catch (e) { mostrarIngreso(true); decir('ingreso-estado', e.message, 'mal'); }
+})();
+</script>
+</body>
+</html>

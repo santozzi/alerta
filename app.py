@@ -9,14 +9,32 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import admin
+import ajustes
 import monitor
 
-INTERVALO = float(os.environ.get("INTERVALO_MIN", "5"))
+INTERVALO_DEFECTO = float(os.environ.get("INTERVALO_MIN", "5"))
 PUERTO = int(os.environ.get("PUERTO", "8000"))
 # Ruta publica cuando va detras de un proxy (ej. "/alerta"); vacio = raiz.
 PREFIJO = os.environ.get("PREFIJO", "").rstrip("/")
 # Camaras a vigilar (separadas por coma); vacio = todas.
-CAMARAS = [c for c in os.environ.get("CAMARAS", "").split(",") if c in monitor.CAMARAS] or list(monitor.CAMARAS)
+PERMITIDAS = [c for c in os.environ.get("CAMARAS", "").split(",") if c in monitor.CAMARAS] or list(monitor.CAMARAS)
+# Configuracion editable desde el panel de administracion (datos/config.json).
+CFG = ajustes.cargar(INTERVALO_DEFECTO)
+ajustes.aplicar(CFG)
+CAMARAS = [c for c in PERMITIDAS if CFG["camaras"][c]["activa"]] or PERMITIDAS[:1]
+
+
+def recargar_config(cfg):
+    """Pone en uso una configuracion nueva sin reiniciar el servidor."""
+    CFG.clear()
+    CFG.update(cfg)
+    ajustes.aplicar(CFG)
+    CAMARAS[:] = [c for c in PERMITIDAS if CFG["camaras"][c]["activa"]] or PERMITIDAS[:1]
+    for cam in CAMARAS:
+        monitor.Rutas(cam).crear()
+
+
 WEB = Path(__file__).resolve().parent / "web"
 HISTORIAL = 288  # 24 h a una medicion cada 5 min
 
@@ -152,20 +170,21 @@ def bucle_clima():
 
 
 def bucle():
-    previos = {cam: 0.0 for cam in CAMARAS}
+    previos = {}
     while True:
-        for cam in CAMARAS:
+        for cam in list(CAMARAS):
             situacion["midiendo"] = cam
             try:
-                previos[cam] = monitor.ciclo(cam, previos[cam])
+                previos[cam] = monitor.ciclo(cam, previos.get(cam, 0.0))
                 situacion["errores"].pop(cam, None)
             except Exception as e:
                 situacion["errores"][cam] = f"{datetime.now():%d/%m %H:%M} {e}"
                 print(f"[{cam}] error:", e, flush=True)
             monitor.limpiar_viejas(cam)
         situacion["midiendo"] = None
-        situacion["proxima"] = time.time() + INTERVALO * 60
-        time.sleep(INTERVALO * 60)
+        espera = CFG["intervalo_min"] * 60
+        situacion["proxima"] = time.time() + espera
+        time.sleep(espera)
 
 
 def resumen(cam):
@@ -254,7 +273,7 @@ def estado_camara(cam):
         "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"]), "estado": r["estado"]} for r in filas
                       if r["estado"] != "NO_CONFIABLE"],
         "camaras": lista_camaras(),
-        "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
+        "intervalo_min": CFG["intervalo_min"], "proxima": situacion["proxima"], "ahora": time.time(),
         "midiendo": situacion["midiendo"] == cam,
         "midiendo_otra": (monitor.CAMARAS[situacion["midiendo"]]["nombre"]
                           if situacion["midiendo"] and situacion["midiendo"] != cam else None),
@@ -289,7 +308,7 @@ def resumen_general():
         "marea": marea_estado["datos"], "marea_error": marea_estado["error"],
         "smn": smn_estado,
         "riesgo": riesgo(camaras, clima["datos"], marea_estado["datos"]),
-        "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
+        "intervalo_min": CFG["intervalo_min"], "proxima": situacion["proxima"], "ahora": time.time(),
         "midiendo": situacion["midiendo"] and monitor.CAMARAS[situacion["midiendo"]]["nombre"],
     }
 
@@ -303,6 +322,7 @@ def riesgo(camaras, k, mar=None):
     Devuelve nivel (0 normal, 1 atencion, 2 alerta, 3 critico) y los motivos en texto.
     """
     nivel, motivos = 0, []
+    s = CFG["semaforo"]
     for c in camaras:
         a, t = c["actual"], c["tendencia"]
         if not a:
@@ -344,12 +364,12 @@ def riesgo(camaras, k, mar=None):
                 break
     lluvia_fuerte = False
     if k:
-        lluvia_fuerte = k["prevista_6h"] >= 10 or k["lluvia_6h"] >= 10 or max(
-            (h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= 5
+        lluvia_fuerte = k["prevista_6h"] >= s["lluvia_6h_mm"] or k["lluvia_6h"] >= s["lluvia_6h_mm"] or max(
+            (h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= s["lluvia_pico_mm"]
     if mar:
         b = mar.get("belgrano") or {}
         reciente = b.get("t") and datetime.now() - datetime.strptime(b["t"], "%Y-%m-%d %H:%M") < timedelta(hours=3)
-        if reciente and b.get("diferencia") is not None and b["diferencia"] >= SOBREELEVACION:
+        if reciente and b.get("diferencia") is not None and b["diferencia"] >= s["marea_m"]:
             nivel = max(nivel, 1)
             motivos.append(f"Marea {b['diferencia']:+.2f} m por encima de lo previsto (Puerto Belgrano)".replace(".", ","))
         p = mar.get("proxima_pleamar")
@@ -361,12 +381,13 @@ def riesgo(camaras, k, mar=None):
                                + ": los canales desaguan peor")
     if k:
         alta = next((p for p in k.get("cuenca", []) if p["nombre"].startswith("Cuenca alta")), None)
-        if k["prevista_6h"] >= 10 or max((h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= 5:
+        if k["prevista_6h"] >= s["lluvia_6h_mm"] or max((h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]),
+                                                         default=0) >= s["lluvia_pico_mm"]:
             nivel = max(nivel, 1); motivos.append(f"Lluvia fuerte prevista en la ciudad ({k['prevista_6h']:.1f} mm en 6 h)")
-        if alta and (alta["prevista_24h"] >= 20 or alta["lluvia_24h"] >= 20):
+        if alta and (alta["prevista_24h"] >= s["sierras_24h_mm"] or alta["lluvia_24h"] >= s["sierras_24h_mm"]):
             nivel = max(nivel, 1)
             motivos.append(f"Mucha lluvia en las sierras (24 h: {alta['lluvia_24h']:.1f} mm caídos, {alta['prevista_24h']:.1f} mm previstos)")
-        if k["lluvia_24h"] >= 20:
+        if k["lluvia_24h"] >= s["ciudad_24h_mm"]:
             nivel = max(nivel, 1); motivos.append(f"Suelo mojado: {k['lluvia_24h']:.1f} mm en las últimas 24 h")
     return {"nivel": nivel, "motivos": motivos}
 
@@ -391,6 +412,8 @@ class Manejador(BaseHTTPRequestHandler):
             return
         if PREFIJO and ruta.startswith(PREFIJO + "/"):
             ruta = ruta[len(PREFIJO):]
+        if ruta.startswith("/admin"):
+            return self._admin_get(ruta, q)
         cam = q.get("cam", [CAMARAS[0]])[0]
         if cam not in CAMARAS:
             return self._enviar(b"camara desconocida", "text/plain", 404)
@@ -428,6 +451,124 @@ class Manejador(BaseHTTPRequestHandler):
         else:
             self._enviar(b"no encontrado", "text/plain", 404)
 
+    # ------------------------------------------------------------ administracion
+    def _json(self, datos, codigo=200, cabeceras=()):
+        cuerpo = json.dumps(datos, ensure_ascii=False).encode()
+        self.send_response(codigo)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in cabeceras:
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def _ip(self):
+        return (self.headers.get("CF-Connecting-IP") or (self.headers.get("X-Forwarded-For") or "").split(",")[0].strip()
+                or self.client_address[0])
+
+    def _token(self):
+        for parte in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = parte.strip().partition("=")
+            if k == admin.COOKIE:
+                return v
+        return None
+
+    def _cookie(self, token, duracion):
+        seguro = "; Secure" if self.headers.get("X-Forwarded-Proto") == "https" else ""
+        return ("Set-Cookie", f"{admin.COOKIE}={token}; Path={PREFIJO or '/'}; Max-Age={duracion}; HttpOnly; SameSite=Strict{seguro}")
+
+    def _admin_get(self, ruta, q):
+        if ruta in ("/admin", "/admin/"):
+            if ruta == "/admin":   # con la barra final, los enlaces relativos de la pagina funcionan
+                self.send_response(301)
+                self.send_header("Location", PREFIJO + "/admin/")
+                self.send_header("Content-Length", "0")
+                return self.end_headers()
+            return self._enviar((WEB / "admin.html").read_bytes(), "text/html; charset=utf-8")
+        if ruta == "/admin/api/sesion":
+            return self._json({"activo": admin.clave_configurada(), "dentro": admin.valida(self._token())})
+        if not admin.valida(self._token()):
+            return self._json({"error": "Hay que ingresar con la clave."}, 401)
+        if ruta == "/admin/api/config":
+            return self._json({"config": CFG, "defecto": ajustes.defecto(INTERVALO_DEFECTO), "permitidas": PERMITIDAS,
+                               "limites": ajustes.LIMITES_SEMAFORO, "ancho": monitor.ANCHO, "alto": monitor.ALTO})
+        if ruta == "/admin/api/base":
+            cam = q.get("cam", [""])[0]
+            if cam not in monitor.CAMARAS:
+                return self._json({"error": "camara desconocida"}, 404)
+            # La imagen sobre la que se marcan las lineas: la base o, si no hay, la ultima captura limpia.
+            for archivo in (monitor.BASES / f"{cam}.jpg", monitor.Rutas(cam).dir / "previa.jpg"):
+                if archivo.exists():
+                    return self._enviar(archivo.read_bytes(), "image/jpeg")
+            return self._json({"error": "todavia no hay imagen de esta camara"}, 404)
+        return self._json({"error": "no encontrado"}, 404)
+
+    def do_POST(self):
+        ruta = urlsplit(self.path).path
+        if PREFIJO and ruta.startswith(PREFIJO + "/"):
+            ruta = ruta[len(PREFIJO):]
+        if not ruta.startswith("/admin/api/"):
+            return self._json({"error": "no encontrado"}, 404)
+        # Solo se aceptan pedidos hechos desde la propia pagina (freno a pedidos cruzados).
+        origen = self.headers.get("Origin")
+        if origen and urlsplit(origen).netloc != (self.headers.get("X-Forwarded-Host") or self.headers.get("Host")):
+            return self._json({"error": "origen no permitido"}, 403)
+        if "application/json" not in (self.headers.get("Content-Type") or ""):
+            return self._json({"error": "formato no permitido"}, 415)
+        try:
+            largo = int(self.headers.get("Content-Length") or 0)
+            if not 0 < largo <= 100_000:
+                raise ValueError
+            datos = json.loads(self.rfile.read(largo))
+            if not isinstance(datos, dict):
+                raise ValueError
+        except ValueError:
+            return self._json({"error": "pedido invalido"}, 400)
+
+        if ruta == "/admin/api/ingresar":
+            if not admin.clave_configurada():
+                return self._json({"error": "El panel esta desactivado: falta ADMIN_CLAVE en el .env."}, 403)
+            ip = self._ip()
+            espera = admin.bloqueado(ip)
+            if espera:
+                return self._json({"error": f"Demasiados intentos. Proba de nuevo en {espera // 60 + 1} min."}, 429)
+            token = admin.ingresar(datos.get("clave"), ip)
+            if not token:
+                time.sleep(1)   # hace mas lento probar claves
+                print(f"admin: clave incorrecta desde {ip}", flush=True)
+                return self._json({"error": "Clave incorrecta."}, 401)
+            print(f"admin: ingreso desde {ip}", flush=True)
+            return self._json({"ok": True}, cabeceras=[self._cookie(token, admin.DURACION)])
+
+        if not admin.valida(self._token()):
+            return self._json({"error": "Hay que ingresar con la clave."}, 401)
+        if ruta == "/admin/api/salir":
+            admin.salir(self._token())
+            return self._json({"ok": True}, cabeceras=[self._cookie("", 0)])
+        if ruta == "/admin/api/config":
+            try:
+                cfg = ajustes.validar(datos.get("config"), INTERVALO_DEFECTO)
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            ajustes.guardar(cfg)
+            recargar_config(cfg)
+            print(f"admin: configuracion guardada desde {self._ip()}", flush=True)
+            return self._json({"ok": True, "config": CFG})
+        if ruta == "/admin/api/recalibrar":
+            cam = datos.get("cam")
+            if cam not in monitor.CAMARAS:
+                return self._json({"error": "camara desconocida"}, 404)
+            rutas = monitor.Rutas(cam)
+            borradas = 0
+            for ref in rutas.refs.glob("ref_*.jpg"):
+                ref.unlink()
+                borradas += 1
+            (rutas.dir / "calidad.json").unlink(missing_ok=True)
+            print(f"admin: {cam} recalibrada ({borradas} referencias borradas)", flush=True)
+            return self._json({"ok": True, "borradas": borradas})
+        return self._json({"error": "no encontrado"}, 404)
+
     def log_message(self, *a):
         pass
 
@@ -450,5 +591,7 @@ if __name__ == "__main__":
         print("Telegram: bot activo" + ("" if bot.chat_id else " (esperando que le escribas para registrar tu chat)"), flush=True)
     else:
         print("Telegram: desactivado (no hay TELEGRAM_BOT_TOKEN en el .env); la pagina funciona igual", flush=True)
-    print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {INTERVALO:g} min", flush=True)
+    print("Administracion: " + ("activa en /admin" if admin.clave_configurada()
+                                 else "desactivada (falta ADMIN_CLAVE de 8 caracteres o mas en el .env)"), flush=True)
+    print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {CFG['intervalo_min']:g} min", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PUERTO), Manejador).serve_forever()
