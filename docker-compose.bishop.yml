@@ -11,6 +11,7 @@ services:
       TZ: America/Argentina/Buenos_Aires
       INTERVALO_MIN: "5"
       PREFIJO: /alerta
+      URL_PUBLICA: https://sergioantozzi.dev/alerta/
     # Claves privadas (Telegram). Ver .env.example; si no existe el .env, arranca igual.
     env_file:
       - path: .env
