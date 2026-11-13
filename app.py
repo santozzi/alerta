@@ -444,5 +444,7 @@ if __name__ == "__main__":
         # Espera a que haya clima, marea y alertas cargadas antes del primer aviso.
         threading.Timer(90, bot.arrancar).start()
         print("Telegram: bot activo" + ("" if bot.chat_id else " (esperando que le escribas para registrar tu chat)"), flush=True)
+    else:
+        print("Telegram: desactivado (no hay TELEGRAM_BOT_TOKEN en el .env); la pagina funciona igual", flush=True)
     print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {INTERVALO:g} min", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PUERTO), Manejador).serve_forever()

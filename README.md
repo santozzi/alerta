@@ -43,6 +43,21 @@ Variables de entorno (en `docker-compose.yml`):
 
 `docker-compose.bishop.yml` es la variante publicada bajo `/alerta` detrás de Nginx Proxy Manager, en la red `proxy-net`.
 
+## Avisos por Telegram (opcional)
+
+La página funciona sola. Si además querés avisos por Telegram, copiá `.env.example` como `.env` y completá:
+
+| Variable | Para qué |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Token del bot que da @BotFather. Sin esto, Telegram queda desactivado y la página anda igual. |
+| `TELEGRAM_CHAT_ID` | Tu chat. Si lo dejás vacío, se registra el primer chat privado que le escriba al bot; los demás se ignoran. |
+| `TELEGRAM_AVISO_CADA` | Cada cuántos puntos de subida de un canal te avisa (por defecto 5). |
+| `TELEGRAM_CANAL` | Opcional y apagado por defecto: canal público (por ejemplo `@bahiaalerta`) donde el bot publica los avisos importantes. El bot tiene que ser administrador del canal. |
+
+El `.env` está en `.gitignore`: nunca lo subas. Un mismo bot no puede correr en dos servidores a la vez.
+
+Comandos del bot: `/estado`, `/camaras`, `/foto <cámara>`.
+
 ## Agregar una cámara
 
 1. Capturar un fotograma de 1920×1080 del video.
