@@ -90,7 +90,7 @@ NIVEL_ALERTA = 15     # % a partir del cual avisa
 NIVEL_REF = 10        # por debajo de esto la captura renueva la referencia
 SIM_REF_MIN = 0.60    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
 SIM_NUEVA_REF = 0.85  # para guardarse como referencia, la captura tiene que parecerse asi a la anterior
-CONSIST_MIN = 0.80    # consistencia minima de los fotogramas de una captura para usarla como referencia
+CONSIST_MIN = 0.70    # consistencia minima de los fotogramas de una captura para usarla como referencia
 RECALIBRAR_TRAS = 3   # capturas seguidas no confiables pero estables -> se renueva la referencia
 DIAS_CAPTURAS = 7
 
