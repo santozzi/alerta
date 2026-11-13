@@ -148,6 +148,8 @@
   .pie-redes a:hover { border-color: var(--agua); color: var(--agua); }
   .pie-redes svg { width: 16px; height: 16px; fill: currentColor; flex: none; }
   .pie-nota { grid-column: 1 / -1; margin: 0; color: var(--suave); font-size: .8rem; }
+  .pie-aviso { border-left: 3px solid var(--subiendo); padding-left: 10px; }
+  .pie-aviso b { color: var(--texto); }
   .controles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 10px;
                color: var(--suave); font-size: .85rem; }
   .controles label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -298,8 +300,12 @@
     </div>
     <nav class="pie-redes" id="pie-redes" aria-label="Contacto y redes"></nav>
     <p class="pie-nota">Datos de cámaras públicas del Municipio de Bahía Blanca (YouTube), Open-Meteo y el Servicio de Hidrografía Naval.
-      Es una herramienta experimental de seguimiento: ante una emergencia, seguí las indicaciones de Defensa Civil y del SMN.
       Código abierto en <a href="https://github.com/santozzi/alerta" target="_blank" rel="noopener">GitHub</a>.</p>
+    <p class="pie-nota pie-aviso"><b>Aviso:</b> Bahía Alerta depende de servicios externos que no controla
+      (las transmisiones de YouTube, Open-Meteo, el Servicio de Hidrografía Naval y Google Noticias).
+      Si alguno deja de funcionar, cambia o se demora, la información puede estar desactualizada, incompleta o ser incorrecta.
+      Los niveles se estiman con análisis de imagen y los umbrales son provisorios.
+      Es una herramienta experimental de seguimiento, no un sistema oficial de alerta: ante una emergencia, seguí las indicaciones de Defensa Civil, el Municipio y el SMN.</p>
   </div>
 </footer>
 

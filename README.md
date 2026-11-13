@@ -11,6 +11,8 @@ Cámaras incluidas:
 | Casanova y Fuerte Argentino | `R5AjH5tHUvo` |
 | Panamá y 1° de Marzo | `UG5Xw5Ph9ug` |
 
+> **Aviso:** depende de servicios externos (transmisiones de YouTube, Open-Meteo, Servicio de Hidrografía Naval y Google Noticias). Si alguno deja de funcionar, cambia o se demora, la información puede estar desactualizada, incompleta o ser incorrecta. Es una herramienta experimental, no un sistema oficial de alerta.
+
 ## Cómo mide
 
 - Por cada cámara toma 5 fotogramas (uno por segundo) y usa la mediana, que borra autos y ruido.
