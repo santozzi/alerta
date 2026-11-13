@@ -354,6 +354,8 @@ class Manejador(BaseHTTPRequestHandler):
             self.send_header("Location", (PREFIJO or "") + "/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif ruta in ("/logo.png", "/favicon.png", "/logo-completo.png"):
+            self._enviar((WEB / ruta[1:]).read_bytes(), "image/png", cache="public, max-age=86400")
         elif ruta == "/api/noticias":
             self._enviar(json.dumps(noticias_estado).encode(), "application/json")
         elif ruta == "/api/resumen":

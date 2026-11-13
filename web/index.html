@@ -3,17 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nivel del canal</title>
+<title>Bahía Alerta</title>
+<meta name="description" content="Bahía Alerta: nivel de los canales de Bahía Blanca en vivo, lluvia, marea y noticias.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="logo.png">
+<meta property="og:title" content="Bahía Alerta">
+<meta property="og:description" content="Nivel de los canales de Bahía Blanca en vivo, lluvia, marea y noticias.">
+<meta property="og:image" content="logo-completo.png">
 <style>
   :root {
     --fondo: #f3f5f7; --panel: #ffffff; --texto: #17202a; --suave: #5d6b78; --borde: #dde3e9;
     --hormigon: #b9c0c7; --agua: #2f86d6; --agua2: #1f6fbf;
     --lluvia: #8a6fd1;
+    --marca1: #0f4c97; --marca2: #13a7d8;
     --normal: #1e9e5a; --subiendo: #d99a00; --alto: #e2681c; --critico: #d22f2f;
   }
   @media (prefers-color-scheme: dark) {
     :root { --fondo: #10151a; --panel: #1a2128; --texto: #e8edf2; --suave: #93a1ae; --borde: #2b343d;
-            --hormigon: #56616b; --agua: #3d97e8; --agua2: #2b7fd0; }
+            --hormigon: #56616b; --agua: #3d97e8; --agua2: #2b7fd0;
+            --marca1: #5b9cf0; --marca2: #3cc6f0; }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -34,6 +42,13 @@
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
   h1 { font-size: 1.35rem; margin: 0; }
   header span { color: var(--suave); font-size: .9rem; }
+  header { align-items: center; }
+  .marca { display: flex; align-items: center; gap: 10px; }
+  .marca img { width: 60px; height: 60px; flex: none; background: none; aspect-ratio: auto; border-radius: 0; }
+  .marca h1 { font-size: 2.1rem; font-weight: 800; letter-spacing: -.01em; line-height: 1; }
+  .marca .b1 { color: var(--marca1); font-size: inherit; }
+  .marca .b2 { color: var(--marca2); font-size: inherit; }
+  .marca small { display: block; color: var(--suave); font-size: .8rem; font-weight: 400; margin-top: 3px; }
   .rejilla { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   @media (max-width: 760px) { .rejilla { grid-template-columns: minmax(0, 1fr); } }
   .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; padding: 16px; }
@@ -136,7 +151,10 @@
 <body>
 <main>
   <header>
-    <h1>Nivel de los canales</h1>
+    <div class="marca">
+      <img src="logo.png" alt="" width="48" height="48">
+      <div><h1><span class="b1">Bahía</span> <span class="b2">Alerta</span></h1><small>Nivel de los canales de Bahía Blanca</small></div>
+    </div>
     <span><span id="lugar"></span><span id="enlace-video"> · <a id="video" href="#" target="_blank" rel="noopener">ver en YouTube</a></span></span>
   </header>
 
@@ -444,7 +462,7 @@ function pintarGeneral() {
   solapas(g.camaras.map(c => ({ id: c.id, nombre: c.nombre, nivel: c.actual && c.actual.nivel,
     estado: c.actual && c.actual.estado, tendencia: c.tendencia && c.tendencia.etiqueta })), g.riesgo.nivel);
   document.getElementById('lugar').textContent = 'Todas las cámaras';
-  document.title = 'Nivel de los canales · Panel general';
+  document.title = 'Bahía Alerta · Panel general';
 
   const info = RIESGO[g.riesgo.nivel];
   document.getElementById('riesgo').style.setProperty('--color', css(info.color));
@@ -606,7 +624,7 @@ function pintar() {
   mostrarVista(false);
   solapas(datos.camaras, datos.riesgo_nivel);
   document.getElementById('lugar').textContent = datos.nombre;
-  document.title = 'Nivel del canal · ' + datos.nombre;
+  document.title = 'Bahía Alerta · ' + datos.nombre;
   document.getElementById('video').href = 'https://www.youtube.com/watch?v=' + datos.video;
   if (videoActual !== datos.video) {
     videoActual = datos.video;
