@@ -95,7 +95,7 @@ VAR_MIN = 12.0        # la referencia necesita algo de textura para opinar
 UMBRALES = [(70, "CRITICO"), (40, "ALTO"), (15, "SUBIENDO"), (0, "normal")]
 NIVEL_ALERTA = 15     # % a partir del cual avisa
 NIVEL_REF = 10        # por debajo de esto la captura renueva la referencia
-SIM_REF_MIN = 0.60    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
+SIM_REF_MIN = 0.52    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
 SIM_NUEVA_REF = 0.85  # para guardarse como referencia, la captura tiene que parecerse asi a la anterior
 CONSIST_MIN = 0.70    # consistencia minima de los fotogramas de una captura para usarla como referencia
 HUECO = 8             # puntos seguidos sin cambio que cortan el avance del agua (de 240 por linea)

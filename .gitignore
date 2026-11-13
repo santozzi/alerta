@@ -5,3 +5,6 @@ __pycache__/
 
 # Claves privadas (token de Telegram, etc.)
 .env
+
+# Pruebas con imagenes sueltas
+simulacion/
