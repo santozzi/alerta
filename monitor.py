@@ -56,12 +56,15 @@ CAMARAS = {
             [(748, 215), (800, 330), (860, 455), (930, 590)],
             [(1010, 215), (1250, 320), (1560, 440), (1890, 580)],
             [0.30, 0.50, 0.70, 0.90]),
+        "agua": [(0.18, 0.45), (0.20, 0.50), (0.22, 0.50), (0.17, 0.46)],
     },
     "parque-de-mayo": {
         "nombre": "Parque de Mayo",
         "video": "HCNs0AIW1mU",
         "cortes": [((780, 470), (1450, 560)), ((620, 560), (1420, 680)),
                    ((430, 680), (1370, 800)), ((250, 820), (1310, 920))],
+        # incluye las plantas flotantes, que se mueven y no son una crecida
+        "agua": [(0.42, 0.93), (0.42, 0.85), (0.43, 0.82), (0.40, 0.75)],
     },
     "casanova": {
         "nombre": "Casanova y Fuerte Argentino",
@@ -69,6 +72,8 @@ CAMARAS = {
         # Los extremos izquierdos arrancan en el pasto, a la derecha de la senda peatonal.
         "cortes": [((1040, 215), (1310, 215)), ((935, 270), (1380, 270)),
                    ((815, 330), (1440, 340)), ((705, 400), (1460, 420))],
+        # incluye los juncos de la orilla, que se mueven con el viento
+        "agua": [(0.45, 0.72), (0.30, 0.78), (0.38, 0.72), (0.33, 0.68)],
     },
     # Aca solo se ve el cauce y la orilla derecha: los cortes van del borde
     # izquierdo de la imagen hasta el filo del talud contra el pasto.
@@ -77,6 +82,7 @@ CAMARAS = {
         "video": "UG5Xw5Ph9ug",
         "cortes": [((20, 260), (560, 260)), ((10, 420), (470, 420)),
                    ((10, 580), (370, 580)), ((10, 760), (260, 760))],
+        "agua": [(0.42, 0.80), (0.22, 0.78), (0.0, 0.45), (0.0, 0.35)],
     },
 }
 NOMBRES_CORTE = ["lejos", "medio", "medio", "cerca"]
@@ -92,6 +98,8 @@ NIVEL_REF = 10        # por debajo de esto la captura renueva la referencia
 SIM_REF_MIN = 0.60    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
 SIM_NUEVA_REF = 0.85  # para guardarse como referencia, la captura tiene que parecerse asi a la anterior
 CONSIST_MIN = 0.70    # consistencia minima de los fotogramas de una captura para usarla como referencia
+HUECO = 8             # puntos seguidos sin cambio que cortan el avance del agua (de 240 por linea)
+HUECO_ORILLA = 14     # idem, pero pegado a la orilla de base
 RECALIBRAR_TRAS = 3   # capturas seguidas no confiables pero estables -> se renueva la referencia
 DIAS_CAPTURAS = 7
 
@@ -188,6 +196,47 @@ def similitud(a, b):
     return float((_huella(a) * _huella(b)).mean())
 
 
+BASES = BASE / "bases"   # imagen canonica de cada camara: sobre ella se definieron las lineas
+
+
+def alinear(img, objetivo):
+    """Lleva `img` a la geometria de `objetivo` (misma camara, quiza corrida o con otro zoom).
+
+    Las camaras se mueven un poco (viento, operador): sin esto, las lineas de medicion caen en
+    otro lugar del canal y todo parece "cambio". Busca puntos en comun (ORB) y ajusta
+    traslacion + giro + escala. Devuelve (imagen alineada, mascara valida, info) o
+    (None, None, motivo) si no hay forma confiable de alinear.
+    """
+    esc = 0.5
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    prep = lambda x: clahe.apply(cv2.cvtColor(cv2.resize(x, None, fx=esc, fy=esc, interpolation=cv2.INTER_AREA),
+                                              cv2.COLOR_BGR2GRAY))
+    orb = cv2.ORB_create(4000)
+    ka, da = orb.detectAndCompute(prep(img), None)
+    kb, db = orb.detectAndCompute(prep(objetivo), None)
+    if da is None or db is None or len(ka) < 50 or len(kb) < 50:
+        return None, None, "pocos puntos de referencia"
+    pares = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(da, db, k=2)
+    buenos = [p[0] for p in pares if len(p) == 2 and p[0].distance < 0.75 * p[1].distance]
+    if len(buenos) < 30:
+        return None, None, f"pocas coincidencias ({len(buenos)})"
+    pa = np.float32([ka[m.queryIdx].pt for m in buenos]) / esc
+    pb = np.float32([kb[m.trainIdx].pt for m in buenos]) / esc
+    M, dentro = cv2.estimateAffinePartial2D(pa, pb, method=cv2.RANSAC, ransacReprojThreshold=4.0)
+    n = 0 if dentro is None else int(dentro.sum())
+    if M is None or n < 25:
+        return None, None, f"ajuste debil ({n} puntos)"
+    escala = float(np.hypot(M[0, 0], M[1, 0]))
+    giro = float(np.degrees(np.arctan2(M[1, 0], M[0, 0])))
+    dx, dy = float(M[0, 2]), float(M[1, 2])
+    info = {"dx": round(dx, 1), "dy": round(dy, 1), "escala": round(escala, 3), "giro": round(giro, 2), "puntos": n}
+    if not 0.85 < escala < 1.18 or abs(giro) > 6 or abs(dx) > 0.2 * ANCHO or abs(dy) > 0.2 * ALTO:
+        return None, None, f"la camara se movio demasiado {info}"
+    alineada = cv2.warpAffine(img, M, (ANCHO, ALTO), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+    valida = cv2.warpAffine(np.full((ALTO, ANCHO), 255, np.uint8), M, (ANCHO, ALTO)) > 0
+    return alineada, valida, info
+
+
 def lineas_corte(cam):
     out = []
     for a, b in CAMARAS[cam]["cortes"]:
@@ -201,8 +250,8 @@ def _gris(img):
     return cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0).astype(np.float32)
 
 
-def medir(cam, img, ref):
-    """Devuelve (nivel %, [% por corte], [mascara de puntos cambiados por corte])."""
+def medir(cam, img, ref, valida=None):
+    """Devuelve (nivel %, [% por corte], [mascara de puntos donde avanzo el agua, por corte])."""
     a, b = _gris(img), _gris(ref)
     k = (PARCHE, PARCHE)
     ma, mb = cv2.blur(a, k), cv2.blur(b, k)
@@ -212,16 +261,56 @@ def medir(cam, img, ref):
     corr = cov / (np.sqrt(np.maximum(va, 0) * np.maximum(vb, 0)) + 1e-3)
 
     porcentajes, mascaras = [], []
-    for pts in lineas_corte(cam):
+    for pts, (w0, w1) in zip(lineas_corte(cam), CAMARAS[cam]["agua"]):
         x, y = pts[:, 0], pts[:, 1]
         valido = vb[y, x] > VAR_MIN
+        if valida is not None:
+            valido &= valida[y, x]
         cambio = (corr[y, x] < CORR_MIN) & valido
         # suavizado: un punto cuenta si la mayoria de sus vecinos tambien cambio
         suave = np.convolve(cambio.astype(float), np.ones(9) / 9, mode="same") > 0.5
-        pct = 100.0 * suave.sum() / max(valido.sum(), 1)
-        porcentajes.append(min(pct, 100.0))
-        mascaras.append(suave)
+        pct, avance = _avance(suave, valido, w0, w1)
+        porcentajes.append(pct)
+        mascaras.append(avance)
     return float(np.median(porcentajes)), porcentajes, mascaras
+
+
+def _avance(cambio, valido, w0, w1):
+    """Cuanto avanzo el agua desde sus orillas de base hacia lo seco.
+
+    Una crecida ensancha el agua: lo seco que esta pegado a la orilla pasa a ser agua. Por eso
+    solo cuentan los cambios contiguos a la orilla de base (se toleran huecos chicos). Lo que
+    cambia dentro del agua (reflejos del cielo, plantas que flotan) o lejos de ella (sombras
+    en el talud, alguien que pasa) no es una crecida y se ignora.
+    Devuelve (% de lo seco cubierto, mascara de los puntos que cuentan).
+    """
+    n = len(cambio)
+    i0, i1 = int(round(w0 * n)), int(round(w1 * n))
+    mascara = np.zeros(n, bool)
+
+    def recorrer(indices):
+        ultimo, hueco = None, 0
+        for j in indices:
+            if cambio[j]:
+                ultimo, hueco = j, 0
+            elif valido[j]:
+                hueco += 1
+                # en la orilla misma se permite un hueco mayor (el borde del agua de base es aproximado)
+                if hueco > (HUECO_ORILLA if ultimo is None else HUECO):
+                    break
+        return ultimo
+
+    extremo_izq = recorrer(range(i0 - 1, -1, -1))
+    extremo_der = recorrer(range(i1, n))
+    cubierto = 0
+    if extremo_izq is not None:
+        mascara[extremo_izq:i0] = True
+        cubierto += i0 - extremo_izq
+    if extremo_der is not None:
+        mascara[i1:extremo_der + 1] = True
+        cubierto += extremo_der + 1 - i1
+    seco = i0 + (n - i1)
+    return (100.0 * cubierto / seco if seco else 0.0), mascara
 
 
 def tramos(mascara):
@@ -295,6 +384,15 @@ def ciclo(cam, previo):
     ref, hora_ref = referencia(rutas, ahora.hour)
     n = len(CAMARAS[cam]["cortes"])
     archivo_previa, archivo_calidad = rutas.dir / "previa.jpg", rutas.dir / "calidad.json"
+    # Corrige pequenos movimientos de la camara llevando la captura a la geometria de la
+    # referencia (o de la imagen base si todavia no hay referencia).
+    base = cv2.imread(str(BASES / f"{cam}.jpg")) if (BASES / f"{cam}.jpg").exists() else None
+    objetivo = ref if ref is not None else base
+    valida, ajuste = None, None
+    if objetivo is not None:
+        alineada, valida, ajuste = alinear(img, objetivo)
+        if alineada is not None:
+            img = alineada
     previa = cv2.imread(str(archivo_previa)) if archivo_previa.exists() else None
     sim_previa = similitud(img, previa) if previa is not None else None
     try:
@@ -314,6 +412,7 @@ def ciclo(cam, previo):
             nota = "(calibrando)"
         else:
             nota = "(calibrando: se espera una imagen limpia)"
+        calidad["crudo"] = 0.0
         nivel, (cortes, mascaras) = 0.0, sin_dato
     else:
         sim_ref = similitud(img, ref)
@@ -331,13 +430,20 @@ def ciclo(cam, previo):
                 nota = "(referencia renovada: la anterior ya no coincidia con la vista)"
         else:
             calidad["seguidas"] = 0
-            nivel, cortes, mascaras = medir(cam, img, ref)
+            crudo, cortes, mascaras = medir(cam, img, ref, valida)
+            # Una subida se informa recien cuando dos mediciones seguidas la ven: se toma el
+            # menor de los dos valores (un reflejo o una sombra pasajera no se repite igual).
+            nivel = min(crudo, calidad.get("crudo", crudo))
+            calidad["crudo"] = crudo
             nota = "" if hora_ref == ahora.hour else f"(ref {hora_ref:02d} h)"
-            if nivel < NIVEL_REF and hora_ref == ahora.hour and apta:
+            if nivel < crudo - 1:
+                nota = (nota + f" (lectura {crudo:.0f} % sin confirmar)").strip()
+            if crudo < NIVEL_REF and hora_ref == ahora.hour and apta:
                 cv2.imwrite(str(propia), img)   # acompana cambios lentos de luz/pasto
     cv2.imwrite(str(archivo_previa), cv2.resize(img, (640, 360), interpolation=cv2.INTER_AREA))
     archivo_calidad.write_text(json.dumps({**calidad, "consistencia": round(consistencia, 3),
-                                           "sim_previa": None if sim_previa is None else round(sim_previa, 3)}),
+                                           "sim_previa": None if sim_previa is None else round(sim_previa, 3),
+                                           "ajuste": ajuste}),
                                encoding="utf-8")
 
     est = "NO_CONFIABLE" if no_confiable else estado(nivel)

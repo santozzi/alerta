@@ -17,6 +17,9 @@ Cámaras incluidas:
 
 - Por cada cámara toma 5 fotogramas (uno por segundo) y usa la mediana, que borra autos y ruido.
 - Compara la textura del canal sobre 4 cortes transversales contra una imagen de referencia de la misma hora del día.
+- Solo cuenta el agua que **avanza desde la orilla de base hacia lo seco** (cada cámara tiene marcado dónde está el agua normalmente, en `"agua"` de `CAMARAS`). Los cambios dentro del agua (reflejos del cielo, plantas flotantes) o lejos de ella (sombras, gente) se ignoran.
+- Antes de comparar, alinea la captura con la referencia para corregir pequeños movimientos de la cámara (`bases/` guarda la imagen sobre la que se marcaron las líneas).
+- Una subida se informa cuando la ven dos mediciones seguidas. Si la imagen entera no se parece a la referencia (un camión delante, la cámara movida), se marca «imagen no confiable» y no se mide.
 - **0 %** es el nivel de base (el agua que corre siempre); **100 %** es el canal cubierto de borde a borde.
 - Estados: Normal, Subiendo (≥ 15 %), Alto (≥ 40 %), Crítico (≥ 70 %).
 - La primera vez que pasa por cada hora del día toma esa captura como referencia, así que las primeras 24 horas son de calibración. Si llueve fuerte durante ese día, recalibrar después con el canal normal.
