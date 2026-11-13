@@ -204,12 +204,66 @@ def estado_camara(cam):
     }
 
 
+def resumen_general():
+    """Todo lo necesario para el panel general: cada camara, el clima y el riesgo."""
+    camaras = []
+    for cam in CAMARAS:
+        _, filas, actual = resumen(cam)
+        camaras.append({
+            "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"],
+            "actual": actual, "tendencia": tendencia(filas),
+            # ultimas 6 h para el mini grafico
+            "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"])} for r in filas[-72:]],
+            "midiendo": situacion["midiendo"] == cam, "error": situacion["errores"].get(cam),
+        })
+    return {
+        "camaras": camaras, "clima": clima["datos"], "clima_error": clima["error"],
+        "riesgo": riesgo(camaras, clima["datos"]),
+        "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
+        "midiendo": situacion["midiendo"] and monitor.CAMARAS[situacion["midiendo"]]["nombre"],
+    }
+
+
+ORDEN_ESTADO = {"normal": 0, "SUBIENDO": 1, "ALTO": 2, "CRITICO": 3}
+
+
+def riesgo(camaras, k):
+    """Semaforo general: el peor canal, y 'atencion' por lluvia aunque el agua no haya subido.
+
+    Devuelve nivel (0 normal, 1 atencion, 2 alerta, 3 critico) y los motivos en texto.
+    """
+    nivel, motivos = 0, []
+    for c in camaras:
+        a, t = c["actual"], c["tendencia"]
+        if not a:
+            continue
+        e = ORDEN_ESTADO.get(a["estado"], 0)
+        if e >= 3:
+            nivel = max(nivel, 3); motivos.append(f"{c['nombre']}: nivel crítico ({a['nivel']:.0f} %)")
+        elif e == 2:
+            nivel = max(nivel, 2); motivos.append(f"{c['nombre']}: nivel alto ({a['nivel']:.0f} %)")
+        elif e == 1:
+            nivel = max(nivel, 1); motivos.append(f"{c['nombre']}: subiendo ({a['nivel']:.0f} %)")
+        if t and t.get("etiqueta") == "sube rápido":
+            nivel = max(nivel, 2); motivos.append(f"{c['nombre']}: sube rápido ({t['v']:+.0f} %/h)")
+    if k:
+        alta = next((p for p in k.get("cuenca", []) if p["nombre"].startswith("Cuenca alta")), None)
+        if k["prevista_6h"] >= 10 or max((h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= 5:
+            nivel = max(nivel, 1); motivos.append(f"Lluvia fuerte prevista en la ciudad ({k['prevista_6h']:.1f} mm en 6 h)")
+        if alta and (alta["prevista_24h"] >= 20 or alta["lluvia_24h"] >= 20):
+            nivel = max(nivel, 1)
+            motivos.append(f"Mucha lluvia en las sierras (24 h: {alta['lluvia_24h']:.1f} mm caídos, {alta['prevista_24h']:.1f} mm previstos)")
+        if k["lluvia_24h"] >= 20:
+            nivel = max(nivel, 1); motivos.append(f"Suelo mojado: {k['lluvia_24h']:.1f} mm en las últimas 24 h")
+    return {"nivel": nivel, "motivos": motivos}
+
+
 class Manejador(BaseHTTPRequestHandler):
-    def _enviar(self, cuerpo, tipo, codigo=200):
+    def _enviar(self, cuerpo, tipo, codigo=200, cache="no-store"):
         self.send_response(codigo)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(cuerpo)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(cuerpo)
 
@@ -230,10 +284,24 @@ class Manejador(BaseHTTPRequestHandler):
 
         if ruta == "/":
             self._enviar((WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
+        elif ruta in ("/panel", "/panel/"):
+            self._enviar((WEB / "panel.html").read_bytes(), "text/html; charset=utf-8")
+        elif ruta == "/api/resumen":
+            self._enviar(json.dumps(resumen_general()).encode(), "application/json")
         elif ruta == "/api/estado":
             self._enviar(json.dumps(estado_camara(cam)).encode(), "application/json")
         elif ruta == "/ultimo.jpg" and monitor.Rutas(cam).ultimo.exists():
-            self._enviar(monitor.Rutas(cam).ultimo.read_bytes(), "image/jpeg")
+            cuerpo = monitor.Rutas(cam).ultimo.read_bytes()
+            ancho = q.get("ancho", [""])[0]
+            if ancho.isdigit() and 64 <= int(ancho) < 1920:
+                import cv2
+                import numpy as np
+                img = cv2.imdecode(np.frombuffer(cuerpo, np.uint8), cv2.IMREAD_COLOR)
+                alto = round(img.shape[0] * int(ancho) / img.shape[1])
+                cuerpo = cv2.imencode(".jpg", cv2.resize(img, (int(ancho), alto), interpolation=cv2.INTER_AREA),
+                                      [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+            # La URL lleva la hora de la medicion (t=...), asi que se puede guardar en cache.
+            self._enviar(cuerpo, "image/jpeg", cache="public, max-age=86400" if "t" in q else "no-store")
         else:
             self._enviar(b"no encontrado", "text/plain", 404)
 
