@@ -1,0 +1,21 @@
+# Despliegue en bishop: se publica como https://sergioantozzi.dev/alerta
+# (Nginx Proxy Manager -> canal-monitor:8000 por la red proxy-net).
+services:
+  canal:
+    build: .
+    container_name: canal-monitor
+    restart: unless-stopped
+    ports:
+      - "8097:8000"
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      INTERVALO_MIN: "5"
+      PREFIJO: /alerta
+    volumes:
+      - ./datos:/app/datos
+    networks:
+      - proxy-net
+
+networks:
+  proxy-net:
+    external: true

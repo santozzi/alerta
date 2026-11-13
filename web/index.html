@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nivel del canal</title>
+<style>
+  :root {
+    --fondo: #f3f5f7; --panel: #ffffff; --texto: #17202a; --suave: #5d6b78; --borde: #dde3e9;
+    --hormigon: #b9c0c7; --agua: #2f86d6; --agua2: #1f6fbf;
+    --lluvia: #8a6fd1;
+    --normal: #1e9e5a; --subiendo: #d99a00; --alto: #e2681c; --critico: #d22f2f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fondo: #10151a; --panel: #1a2128; --texto: #e8edf2; --suave: #93a1ae; --borde: #2b343d;
+            --hormigon: #56616b; --agua: #3d97e8; --agua2: #2b7fd0; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto);
+         font: 16px/1.45 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
+  h1 { font-size: 1.35rem; margin: 0; }
+  header span { color: var(--suave); font-size: .9rem; }
+  .rejilla { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  @media (max-width: 760px) { .rejilla { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; padding: 16px; }
+  .ancho { grid-column: 1 / -1; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--suave); margin: 0 0 10px; }
+  .estado { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .numero { font-size: 3.2rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .etiqueta { padding: 4px 12px; border-radius: 999px; color: #fff; font-weight: 600; font-size: .95rem;
+              background: var(--color-estado, var(--suave)); }
+  .detalle { color: var(--suave); font-size: .9rem; margin: 2px 0; }
+  svg { width: 100%; height: auto; display: block; }
+  #recorte rect { transition: transform 1.5s ease; transform: translateY(160px); }
+  .cortes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .corte { font-size: .78rem; color: var(--suave); text-align: center; }
+  .barra { height: 8px; border-radius: 4px; background: var(--borde); overflow: hidden; margin-bottom: 4px; }
+  .barra i { display: block; height: 100%; width: 0; background: var(--agua); transition: width 1s ease; }
+  img { width: 100%; border-radius: 8px; display: block; background: var(--borde); aspect-ratio: 16/9; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .video { position: relative; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; background: #000; }
+  .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .clima { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .dato { border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
+  .dato b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .dato span { color: var(--suave); font-size: .8rem; }
+  .dato small { color: var(--suave); font-size: .8rem; display: block; }
+  .dato.llueve b { color: var(--agua); }
+  .flecha { display: inline-block; transition: transform .5s; }
+  .fuente { font-size: .78rem; margin-top: 10px; }
+  .leyenda { display: flex; gap: 16px; font-size: .8rem; color: var(--suave); margin-bottom: 6px; flex-wrap: wrap; }
+  .leyenda i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .solapas { display: flex; flex-wrap: wrap; gap: 0 6px; margin-bottom: 16px; border-bottom: 1px solid var(--borde); }
+  .solapa { appearance: none; border: 0; background: none; color: var(--suave); font: inherit; cursor: pointer;
+            padding: 10px 14px; border-bottom: 3px solid transparent; white-space: nowrap;
+            display: flex; align-items: center; gap: 8px; }
+  .solapa:hover { color: var(--texto); }
+  .solapa[aria-selected="true"] { color: var(--texto); border-bottom-color: var(--agua); font-weight: 600; }
+  .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--suave); flex: none; }
+  .solapa small { color: var(--suave); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .error { color: var(--critico); font-size: .9rem; margin-top: 8px; }
+  a { color: var(--agua); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Nivel del canal</h1>
+    <span><span id="lugar"></span> · <a id="video" href="#" target="_blank" rel="noopener">ver en YouTube</a></span>
+  </header>
+
+  <nav class="solapas" id="solapas" role="tablist" aria-label="Cámaras"></nav>
+
+  <div class="rejilla">
+    <section class="panel">
+      <h2>Estado actual</h2>
+      <div class="estado">
+        <div class="numero" id="numero">–</div>
+        <div class="etiqueta" id="etiqueta">sin datos</div>
+      </div>
+      <p class="detalle">Subida del agua sobre el nivel de base: 0&nbsp;% es el hilo de agua que corre siempre por el medio del canal; 100&nbsp;% es el canal cubierto de borde a borde.</p>
+      <p class="detalle" id="medido">Esperando la primera medición…</p>
+      <p class="detalle" id="proxima"></p>
+      <p class="error" id="error" hidden></p>
+      <div class="cortes" id="cortes"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Corte del canal</h2>
+      <svg viewBox="0 0 400 215" role="img" aria-label="Corte transversal del canal con el nivel de agua">
+        <defs><clipPath id="recorte"><rect x="0" y="30" width="400" height="160"/></clipPath></defs>
+        <polygon points="20,30 130,190 270,190 380,30 400,30 400,205 0,205 0,30" fill="var(--hormigon)"/>
+        <polygon points="20,30 130,190 270,190 380,30" fill="var(--agua)" clip-path="url(#recorte)"/>
+        <g font-size="10" fill="var(--texto)" stroke="var(--texto)" stroke-width="1">
+          <line x1="20" y1="30" x2="380" y2="30" stroke-dasharray="2 4" opacity=".35"/>
+          <g id="marcas"></g>
+        </g>
+        <text x="200" y="20" text-anchor="middle" font-size="11" fill="var(--suave)">borde del canal</text>
+        <text x="200" y="202" text-anchor="middle" font-size="10" fill="var(--texto)">nivel de base</text>
+      </svg>
+    </section>
+
+    <section class="panel ancho">
+      <h2>Clima en Bahía Blanca</h2>
+      <div class="clima" id="clima"><p class="detalle">Cargando clima…</p></div>
+      <p class="detalle fuente" id="clima-fuente"></p>
+    </section>
+
+    <section class="panel ancho">
+      <h2>Cámara en vivo</h2>
+      <div class="video">
+        <iframe id="vivo" title="Cámara en vivo del canal" allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      </div>
+    </section>
+
+    <section class="panel ancho">
+      <h2>Últimas 24 horas</h2>
+      <div class="leyenda">
+        <span><i style="background:var(--agua)"></i>Subida del agua (%)</span>
+        <span><i style="background:var(--lluvia)"></i>Lluvia por hora (mm, escala derecha)</span>
+      </div>
+      <canvas id="grafico"></canvas>
+    </section>
+
+    <section class="panel ancho">
+      <h2>Última captura (verde = igual a la base, rojo = agua nueva)</h2>
+      <img id="foto" alt="Última captura de la cámara del canal">
+    </section>
+  </div>
+</main>
+
+<script>
+const COLORES = { normal: '--normal', SUBIENDO: '--subiendo', ALTO: '--alto', CRITICO: '--critico' };
+const NOMBRES = { normal: 'Normal', SUBIENDO: 'Subiendo', ALTO: 'Alto', CRITICO: 'Crítico' };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let datos = null, ultimaFoto = '', videoActual = '';
+let cam = decodeURIComponent(location.hash.slice(1)) || '';
+
+function solapas(lista) {
+  const nav = document.getElementById('solapas');
+  nav.innerHTML = lista.map(c => {
+    const col = c.estado ? css(COLORES[c.estado] || '--suave') : css('--suave');
+    const niv = c.nivel == null ? '–' : Math.round(c.nivel) + '%';
+    return `<button class="solapa" role="tab" aria-selected="${c.id === datos.id}" data-cam="${c.id}">
+      <span class="punto" style="background:${col}"></span>${c.nombre}<small>${niv}</small></button>`;
+  }).join('');
+}
+
+document.getElementById('solapas').addEventListener('click', e => {
+  const b = e.target.closest('[data-cam]');
+  if (!b || b.dataset.cam === cam) return;
+  cam = b.dataset.cam;
+  history.replaceState(null, '', '#' + encodeURIComponent(cam));
+  ultimaFoto = '';
+  actualizar();
+});
+
+// Marcas de umbral sobre el corte del canal
+(function marcas() {
+  const g = document.getElementById('marcas');
+  [[15, 'sube'], [40, 'alto'], [70, 'crítico']].forEach(([p, t]) => {
+    const f = 0.08 + 0.92 * p / 100, y = 190 - f * 160, x = 270 + 110 * f;
+    g.insertAdjacentHTML('beforeend',
+      `<line x1="${x - 6}" y1="${y}" x2="${x + 6}" y2="${y}"/>` +
+      `<text x="${x - 10}" y="${y + 3.5}" stroke="none" text-anchor="end">${p}% ${t}</text>`);
+  });
+})();
+
+function pintar() {
+  if (!datos) return;
+  cam = datos.id;
+  solapas(datos.camaras);
+  document.getElementById('lugar').textContent = datos.nombre;
+  document.title = 'Nivel del canal · ' + datos.nombre;
+  document.getElementById('video').href = 'https://www.youtube.com/watch?v=' + datos.video;
+  if (videoActual !== datos.video) {
+    videoActual = datos.video;
+    document.getElementById('vivo').src =
+      `https://www.youtube-nocookie.com/embed/${datos.video}?autoplay=1&mute=1&playsinline=1`;
+  }
+  pintarClima();
+  const err = document.getElementById('error');
+  err.hidden = !datos.error;
+  err.textContent = datos.error ? 'Última captura falló: ' + datos.error : '';
+  const a = datos.actual;
+  if (!a) {
+    document.getElementById('numero').textContent = '–';
+    const et = document.getElementById('etiqueta');
+    et.textContent = 'sin datos'; et.style.removeProperty('--color-estado');
+    document.getElementById('medido').textContent = 'Esperando la primera medición…';
+    document.getElementById('cortes').innerHTML = '';
+    document.querySelector('#recorte rect').style.transform = `translateY(${0.92 * 160}px)`;
+    document.getElementById('foto').removeAttribute('src');
+    grafico();
+    return;
+  }
+
+  document.getElementById('numero').textContent = Math.round(a.nivel) + '%';
+  const et = document.getElementById('etiqueta');
+  et.textContent = NOMBRES[a.estado] || a.estado;
+  et.style.setProperty('--color-estado', css(COLORES[a.estado] || '--suave'));
+  document.getElementById('medido').textContent =
+    'Medido: ' + a.fecha_hora.slice(8, 10) + '/' + a.fecha_hora.slice(5, 7) + ' ' + a.fecha_hora.slice(11) +
+    (a.nota ? ' ' + a.nota : '');
+
+  // El hilo de agua de base siempre se dibuja (8 %); la subida medida va encima.
+  const h = 0.08 + 0.92 * Math.min(a.nivel, 100) / 100;
+  document.querySelector('#recorte rect').style.transform = `translateY(${(1 - h) * 160}px)`;
+
+  const nombres = ['lejos', 'medio', 'medio', 'cerca'];
+  document.getElementById('cortes').innerHTML = a.cortes.map((c, i) =>
+    `<div class="corte"><div class="barra"><i style="width:${Math.min(c, 100)}%"></i></div>${nombres[i] || ''} ${Math.round(c)}%</div>`).join('');
+
+  if (a.fecha_hora !== ultimaFoto) {
+    ultimaFoto = a.fecha_hora;
+    document.getElementById('foto').src =
+      'ultimo.jpg?cam=' + encodeURIComponent(cam) + '&t=' + encodeURIComponent(a.fecha_hora);
+  }
+  grafico();
+}
+
+const PUNTOS_CARDINALES = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+const mm = v => (Math.round(v * 10) / 10).toLocaleString('es-AR') + ' mm';
+
+function pintarClima() {
+  const k = datos.clima, caja = document.getElementById('clima');
+  const fuente = document.getElementById('clima-fuente');
+  if (!k) {
+    caja.innerHTML = `<p class="detalle">${datos.clima_error ? 'No se pudo traer el clima: ' + datos.clima_error : 'Cargando clima…'}</p>`;
+    fuente.textContent = '';
+    return;
+  }
+  const dir = PUNTOS_CARDINALES[Math.round(k.direccion / 45) % 8];
+  // La flecha apunta hacia donde va el viento (viene de k.direccion).
+  const dato = (valor, titulo, nota = '', llueve = false) =>
+    `<div class="dato${llueve ? ' llueve' : ''}"><span>${titulo}</span><b>${valor}</b>${nota ? `<small>${nota}</small>` : ''}</div>`;
+  caja.innerHTML =
+    dato(Math.round(k.viento) + ' km/h', 'Viento',
+         `del ${dir} <span class="flecha" style="transform:rotate(${k.direccion + 180}deg)">↑</span>`) +
+    dato(Math.round(k.rafagas) + ' km/h', 'Ráfagas') +
+    dato(mm(k.lluvia_ahora), 'Lluvia ahora', 'últimos 15 min', k.lluvia_ahora > 0) +
+    dato(mm(k.lluvia_6h), 'Lluvia 6 h', 'última hora: ' + mm(k.lluvia_1h), k.lluvia_6h > 0) +
+    dato(mm(k.lluvia_24h), 'Lluvia 24 h', '', k.lluvia_24h > 0) +
+    dato(mm(k.prevista_6h), 'Prevista 6 h', `prob. máx. ${Math.round(k.prob_max_6h)} %`, k.prevista_6h > 0) +
+    dato(Math.round(k.temp) + ' °C', 'Temperatura');
+  fuente.innerHTML = `Datos de modelo meteorológico (<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>) para Bahía Blanca, ` +
+    `no de un pluviómetro. Actualizado ${k.hora.slice(11, 16)}.` +
+    (datos.clima_error ? ' Último intento falló: ' + datos.clima_error : '');
+}
+
+function cuenta() {
+  const p = document.getElementById('proxima');
+  if (!datos) return;
+  if (datos.midiendo) { p.textContent = 'Midiendo ahora…'; return; }
+  const falta = Math.round(datos.proxima - datos.ahora - (Date.now() - datos.recibido) / 1000);
+  p.textContent = falta > 0
+    ? `Próxima medición en ${Math.floor(falta / 60)}:${String(falta % 60).padStart(2, '0')} (cada ${datos.intervalo_min} min)`
+    : 'Midiendo ahora…';
+}
+
+function grafico() {
+  const c = document.getElementById('grafico'), r = devicePixelRatio || 1;
+  const W = c.clientWidth, H = c.clientHeight;
+  c.width = W * r; c.height = H * r;
+  const g = c.getContext('2d'); g.scale(r, r);
+  const m = { l: 40, r: 44, t: 10, b: 24 }, w = W - m.l - m.r, h = H - m.t - m.b;
+  const y = v => m.t + h - v / 100 * h;
+  g.font = '11px system-ui'; g.textBaseline = 'middle';
+
+  [[0, null], [15, '--subiendo'], [40, '--alto'], [70, '--critico'], [100, null]].forEach(([v, col]) => {
+    g.strokeStyle = col ? css(col) : css('--borde');
+    g.setLineDash(col ? [4, 4] : []); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(m.l, y(v)); g.lineTo(m.l + w, y(v)); g.stroke();
+    g.fillStyle = css('--suave'); g.textAlign = 'right';
+    g.fillText(v + '%', m.l - 6, y(v));
+  });
+  g.setLineDash([]);
+
+  const hist = datos.historial;
+  const t = hist.map(p => new Date(p.t.replace(' ', 'T')).getTime());
+  const fin = Math.max(t[t.length - 1] || 0, Date.now()), ini = fin - 24 * 3600e3;
+  const x = ms => m.l + (ms - ini) / (fin - ini) * w;
+
+  g.textAlign = 'center'; g.fillStyle = css('--suave');
+  for (let k = 0; k <= 4; k++) {
+    const ms = ini + k * 6 * 3600e3, d = new Date(ms);
+    g.fillText(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'),
+               Math.min(Math.max(x(ms), m.l + 16), m.l + w - 16), H - 8);
+  }
+
+  // Lluvia por hora (barras, escala derecha en mm)
+  const horas = ((datos.clima && datos.clima.horas) || [])
+    .map(p => ({ ms: new Date(p.t).getTime(), mm: p.mm }))
+    .filter(p => p.ms >= ini - 3600e3 && p.ms < fin);
+  const tope = Math.max(5, Math.ceil(Math.max(0, ...horas.map(p => p.mm))));
+  const ym = v => m.t + h - v / tope * h;
+  g.textAlign = 'left'; g.fillStyle = css('--lluvia');
+  [0, tope / 2, tope].forEach(v => g.fillText((Math.round(v * 10) / 10) + ' mm', m.l + w + 6, ym(v)));
+  const anchoBarra = Math.max(2, w / 24 - 2);
+  g.globalAlpha = .55; g.fillStyle = css('--lluvia');
+  horas.forEach(p => {
+    if (p.mm <= 0) return;
+    const x0 = Math.max(x(p.ms), m.l), x1 = Math.min(x(p.ms + 3600e3), m.l + w);
+    if (x1 > x0) g.fillRect(x0 + 1, ym(p.mm), Math.min(anchoBarra, x1 - x0 - 1), ym(0) - ym(p.mm));
+  });
+  g.globalAlpha = 1;
+  if (!hist.length) return;
+
+  const pts = hist.map((p, i) => [x(t[i]), y(Math.min(p.nivel, 100))]).filter(p => p[0] >= m.l);
+  if (!pts.length) return;
+  g.beginPath(); g.moveTo(pts[0][0], y(0));
+  pts.forEach(p => g.lineTo(p[0], p[1]));
+  g.lineTo(pts[pts.length - 1][0], y(0)); g.closePath();
+  g.globalAlpha = .18; g.fillStyle = css('--agua'); g.fill(); g.globalAlpha = 1;
+  g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]));
+  g.strokeStyle = css('--agua'); g.lineWidth = 2; g.stroke();
+  const u = pts[pts.length - 1];
+  g.beginPath(); g.arc(u[0], u[1], 4, 0, 7); g.fillStyle = css('--agua2'); g.fill();
+}
+
+async function actualizar() {
+  try {
+    const pedida = cam;
+    const r = await fetch('api/estado' + (cam ? '?cam=' + encodeURIComponent(cam) : ''));
+    if (!r.ok) { cam = ''; return actualizar(); }
+    const d = await r.json();
+    if (pedida !== cam) return;   // el usuario cambió de solapa mientras tanto
+    datos = d; datos.recibido = Date.now();
+    pintar();
+  } catch (e) { /* se reintenta en el proximo ciclo */ }
+}
+
+actualizar();
+setInterval(actualizar, 20000);
+setInterval(cuenta, 1000);
+addEventListener('resize', () => datos && grafico());
+addEventListener('hashchange', () => {
+  const nueva = decodeURIComponent(location.hash.slice(1));
+  if (nueva && nueva !== cam) { cam = nueva; ultimaFoto = ''; actualizar(); }
+});
+</script>
+</body>
+</html>

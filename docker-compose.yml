@@ -1,0 +1,12 @@
+services:
+  canal:
+    build: .
+    container_name: canal-monitor
+    restart: unless-stopped
+    ports:
+      - "8097:8000"
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      INTERVALO_MIN: "5"
+    volumes:
+      - ./datos:/app/datos

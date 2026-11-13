@@ -1,0 +1,4 @@
+# Capturas, calibraciones e historial: se generan al correr
+datos/
+__pycache__/
+*.pyc
