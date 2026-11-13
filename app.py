@@ -33,6 +33,21 @@ marea_estado = {"datos": None, "error": None}
 SOBREELEVACION = 0.5   # m por encima de lo previsto en Puerto Belgrano para avisar
 
 
+noticias_estado = {"notas": [], "error": None, "t": None}
+
+
+def bucle_noticias():
+    import noticias as n
+    while True:
+        try:
+            noticias_estado["notas"] = n.buscar()
+            noticias_estado["error"], noticias_estado["t"] = None, datetime.now().strftime("%H:%M")
+        except Exception as e:
+            noticias_estado["error"] = f"{datetime.now():%d/%m %H:%M} {e}"
+            print("noticias error:", e, flush=True)
+        time.sleep(600)
+
+
 def bucle_marea():
     import marea as m
     fuente = m.Marea()
@@ -269,6 +284,15 @@ def riesgo(camaras, k, mar=None):
             nivel = max(nivel, 1); motivos.append(f"{c['nombre']}: subiendo ({a['nivel']:.0f} %)")
         if t and t.get("etiqueta") == "sube rápido":
             nivel = max(nivel, 2); motivos.append(f"{c['nombre']}: sube rápido ({t['v']:+.0f} %/h)")
+    # Alertas del SMN que informan los medios en las ultimas 12 h (no hay API publica del SMN).
+    hace12 = (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M")
+    for color, minimo in (("roja", 2), ("naranja", 1)):
+        nota = next((n for n in noticias_estado["notas"]
+                     if n["fecha"] >= hace12 and f"alerta {color}" in n["titulo"].lower()), None)
+        if nota:
+            nivel = max(nivel, minimo)
+            motivos.append(f"Medios informan alerta {color} por tormentas ({nota['medio']}, {nota['fecha'][11:]})")
+            break
     lluvia_fuerte = False
     if k:
         lluvia_fuerte = k["prevista_6h"] >= 10 or k["lluvia_6h"] >= 10 or max(
@@ -330,6 +354,8 @@ class Manejador(BaseHTTPRequestHandler):
             self.send_header("Location", (PREFIJO or "") + "/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif ruta == "/api/noticias":
+            self._enviar(json.dumps(noticias_estado).encode(), "application/json")
         elif ruta == "/api/resumen":
             self._enviar(json.dumps(resumen_general()).encode(), "application/json")
         elif ruta == "/api/estado":
@@ -360,5 +386,6 @@ if __name__ == "__main__":
     threading.Thread(target=bucle, daemon=True).start()
     threading.Thread(target=bucle_clima, daemon=True).start()
     threading.Thread(target=bucle_marea, daemon=True).start()
+    threading.Thread(target=bucle_noticias, daemon=True).start()
     print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {INTERVALO:g} min", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PUERTO), Manejador).serve_forever()

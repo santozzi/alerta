@@ -19,7 +19,18 @@
   [hidden] { display: none !important; }
   body { margin: 0; background: var(--fondo); color: var(--texto);
          font: 16px/1.45 system-ui, "Segoe UI", sans-serif; }
-  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
+  main { max-width: 1480px; margin: 0 auto; padding: 20px 16px 40px; }
+  .disposicion { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+  @media (min-width: 1200px) { .disposicion { grid-template-columns: minmax(0, 1fr) 340px; } }
+  .noticias { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  @media (max-width: 1199px) { .noticias { position: static; max-height: none; } }
+  .lista-noticias { list-style: none; margin: 10px 0 0; padding: 0; }
+  .lista-noticias li { padding: 10px 0; border-top: 1px solid var(--borde); }
+  .lista-noticias a { color: var(--texto); text-decoration: none; font-weight: 500; line-height: 1.35; display: block; }
+  .lista-noticias a:hover { color: var(--agua); }
+  .lista-noticias small { color: var(--suave); font-size: .78rem; display: block; margin-top: 3px; }
+  .lista-noticias .urgente { border-left: 3px solid var(--critico); padding-left: 10px; }
+  .lista-noticias .nueva { color: var(--critico); font-weight: 600; }
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 16px; }
   h1 { font-size: 1.35rem; margin: 0; }
   header span { color: var(--suave); font-size: .9rem; }
@@ -131,6 +142,8 @@
 
   <nav class="solapas" id="solapas" role="tablist" aria-label="Cámaras"></nav>
 
+  <div class="disposicion">
+  <div class="contenido">
   <div id="vista-general" hidden>
     <section class="panel riesgo" id="riesgo">
       <div class="luz"></div>
@@ -229,6 +242,15 @@
       <h2>Última captura (verde = igual a la base, rojo = agua nueva)</h2>
       <img id="foto" alt="Última captura de la cámara del canal">
     </section>
+  </div>
+  </div>
+
+  <aside class="panel noticias" aria-labelledby="noticias-titulo">
+    <h2 id="noticias-titulo">Noticias de la zona</h2>
+    <p class="detalle">Lluvia, tormentas, alertas e inundaciones en Bahía Blanca y la zona, de los últimos 3 días.</p>
+    <ul class="lista-noticias" id="lista-noticias"><li class="detalle">Buscando noticias…</li></ul>
+    <p class="detalle fuente" id="noticias-pie"></p>
+  </aside>
   </div>
 </main>
 
@@ -762,8 +784,37 @@ async function actualizar() {
   } catch (e) { /* se reintenta en el proximo ciclo */ }
 }
 
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function haceCuanto(fecha) {
+  const min = Math.round((Date.now() - new Date(fecha.replace(' ', 'T')).getTime()) / 60000);
+  if (min < 60) return `hace ${Math.max(min, 1)} min`;
+  if (min < 24 * 60) return `hace ${Math.round(min / 60)} h`;
+  return `${fecha.slice(8, 10)}/${fecha.slice(5, 7)} ${fecha.slice(11)}`;
+}
+
+async function actualizarNoticias() {
+  try {
+    const d = await (await fetch('api/noticias')).json();
+    const ul = document.getElementById('lista-noticias');
+    ul.innerHTML = d.notas.length
+      ? d.notas.map(n => {
+          const reciente = Date.now() - new Date(n.fecha.replace(' ', 'T')).getTime() < 3 * 3600e3;
+          const link = /^https?:\/\//.test(n.link || '') ? n.link : '#';
+          return `<li class="${n.urgente ? 'urgente' : ''}"><a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(n.titulo)}</a>
+            <small>${reciente ? '<span class="nueva">nueva · </span>' : ''}${esc(n.medio)} · ${haceCuanto(n.fecha)}</small></li>`;
+        }).join('')
+      : `<li class="detalle">${d.t ? 'No hay noticias de lluvia o inundaciones en los últimos 3 días.' : 'Buscando noticias…'}</li>`;
+    document.getElementById('noticias-pie').textContent =
+      (d.t ? `Búsqueda en Google Noticias filtrada por palabras clave; actualizada a las ${d.t}, se repite cada 10 min.` : '') +
+      (d.error ? ' Último intento falló: ' + d.error : '');
+  } catch (e) { /* reintenta en el proximo ciclo */ }
+}
+
 actualizar();
+actualizarNoticias();
 setInterval(actualizar, 20000);
+setInterval(actualizarNoticias, 120000);
 setInterval(cuenta, 1000);
 addEventListener('resize', () => {
   if (cam === 'general') { if (general) { general.camaras.forEach(mini); curvaMarea(); } }
