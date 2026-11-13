@@ -209,9 +209,16 @@ def resumen_general():
     """Todo lo necesario para el panel general: cada camara, el clima y el riesgo."""
     camaras = []
     for cam in CAMARAS:
-        _, filas, actual = resumen(cam)
+        rutas, filas, actual = resumen(cam)
+        try:
+            tramos = json.loads(rutas.ultimo_json.read_text(encoding="utf-8"))["tramos"]
+        except (OSError, ValueError, KeyError):
+            tramos = None
         camaras.append({
-            "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"],
+            "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"], "video": monitor.CAMARAS[cam]["video"],
+            # lineas de medicion en coordenadas de la imagen 1920x1080, y que partes cambiaron
+            "lineas": [[[int(v) for v in a], [int(v) for v in b]] for a, b in monitor.CAMARAS[cam]["cortes"]],
+            "tramos": tramos,
             "actual": actual, "tendencia": tendencia(filas),
             # ultimas 6 h para el mini grafico
             "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"])} for r in filas[-72:]],

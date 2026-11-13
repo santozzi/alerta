@@ -13,6 +13,7 @@ Uso:
 """
 import argparse
 import csv
+import json
 import shutil
 import subprocess
 import sys
@@ -102,6 +103,7 @@ class Rutas:
         self.registro = self.dir / "registro.csv"
         self.alertas = self.dir / "alertas.log"
         self.ultimo = self.dir / "ultimo.jpg"
+        self.ultimo_json = self.dir / "ultimo.json"
 
     def crear(self):
         for d in (self.refs, self.capturas):
@@ -195,6 +197,17 @@ def medir(cam, img, ref):
     return float(np.median(porcentajes)), porcentajes, mascaras
 
 
+def tramos(mascara):
+    """Compacta una mascara de puntos en tramos [desde, hasta, cambio] (fracciones de la linea)."""
+    m = [bool(x) for x in mascara]
+    out, inicio = [], 0
+    for i in range(1, len(m) + 1):
+        if i == len(m) or m[i] != m[inicio]:
+            out.append([round(inicio / len(m), 4), round(i / len(m), 4), int(m[inicio])])
+            inicio = i
+    return out
+
+
 def estado(nivel):
     return next(nombre for minimo, nombre in UMBRALES if nivel >= minimo)
 
@@ -267,6 +280,9 @@ def ciclo(cam, previo):
 
     est = estado(nivel)
     cv2.imwrite(str(rutas.ultimo), anotar(cam, img, nivel, mascaras, ahora, nota))
+    # Tramos de cada linea (desde, hasta, cambio) para dibujarlos sobre el video en la web.
+    rutas.ultimo_json.write_text(json.dumps({"fecha_hora": f"{ahora:%Y-%m-%d %H:%M}",
+                                             "tramos": [tramos(m) for m in mascaras]}), encoding="utf-8")
     cv2.imwrite(str(rutas.capturas / f"{ahora:%Y%m%d_%H%M}.jpg"),
                 cv2.resize(img, (960, 540)), [cv2.IMWRITE_JPEG_QUALITY, 80])
     nuevo = not rutas.registro.exists()

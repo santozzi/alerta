@@ -87,10 +87,18 @@
   .riesgo .meta { margin-left: auto; text-align: right; color: var(--suave); font-size: .82rem; }
   @media (max-width: 640px) { .riesgo { flex-wrap: wrap; } .riesgo .meta { margin-left: 0; text-align: left; flex-basis: 100%; } }
   .camaras { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 16px; }
-  .cam { padding: 0; overflow: hidden; display: flex; flex-direction: column; text-decoration: none; color: inherit;
-         border-top: 5px solid var(--color, var(--suave)); transition: transform .15s; }
-  .cam:hover { transform: translateY(-2px); }
-  .cam img { border-radius: 0; object-fit: cover; }
+  .cam { padding: 0; overflow: hidden; display: flex; flex-direction: column;
+         border-top: 5px solid var(--color, var(--suave)); }
+  .cam .medio { position: relative; aspect-ratio: 16/9; background: #000; }
+  .cam .medio iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .cam .medio .capa { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .sin-lineas .capa { display: none; }
+  .cam .nombre { display: flex; justify-content: space-between; gap: 8px; }
+  .cam .nombre a { font-weight: 400; font-size: .85rem; white-space: nowrap; }
+  .controles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 10px;
+               color: var(--suave); font-size: .85rem; }
+  .controles label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .controles i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
   .cam .cuerpo { padding: 10px 14px 12px; display: grid; gap: 4px; }
   .cam .nombre { font-weight: 600; }
   .cam .fila { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -117,6 +125,11 @@
       <div><b id="riesgo-titulo">Cargando…</b><ul id="riesgo-motivos"></ul></div>
       <div class="meta" id="riesgo-meta"></div>
     </section>
+    <div class="controles">
+      <label><input type="checkbox" id="ver-lineas" checked> Mostrar las líneas de medición sobre el video</label>
+      <span><i style="background:#2ecc40"></i>igual a la base</span>
+      <span><i style="background:#ff3b30"></i>agua nueva (última medición)</span>
+    </div>
     <section class="camaras" id="tarjetas"></section>
     <section class="panel">
       <h2>Clima en Bahía Blanca</h2>
@@ -277,6 +290,7 @@ function mostrarVista(esGeneral) {
   if (esGeneral && videoActual) {   // corta el video al salir de una camara
     document.getElementById('vivo').src = 'about:blank'; videoActual = '';
   }
+  if (!esGeneral && tarjetasDe) quitarTarjetas();
 }
 
 const RITMO_G = { 'sube rápido': ['⇈', '--critico'], 'sube': ['↑', '--subiendo'], 'baja': ['↓', '--normal'], 'estable': ['→', '--normal'] };
@@ -292,17 +306,59 @@ function tarjeta(c) {
   }
   const nota = c.error ? `<small style="color:${css('--critico')}">Falló la captura</small>`
     : c.midiendo ? '<small>Capturando…</small>' : a && a.nota ? `<small>${a.nota}</small>` : '';
-  return `<a class="panel cam" href="#${encodeURIComponent(c.id)}" style="--color:${col}" title="Ver ${c.nombre} en detalle">
-    <img data-cam="${c.id}" alt="Última captura de ${c.nombre}">
-    <div class="cuerpo">
-      <div class="nombre">${c.nombre}</div>
+  return `<div class="nombre"><b>${c.nombre}</b><a href="#${encodeURIComponent(c.id)}">ver detalle →</a></div>
       <div class="fila"><span class="g-nivel">${a ? Math.round(a.nivel) + '%' : '–'}</span>
         <span class="g-etiqueta">${a ? NOMBRES[a.estado] || a.estado : 'sin datos'}</span></div>
       <div class="fila">${ritmo}</div>
       <canvas data-graf="${c.id}"></canvas>
-      <div class="fila"><small>Medido ${a ? a.fecha_hora.slice(11) : '–'} · últimas 6 h</small>${nota}</div>
-    </div></a>`;
+      <div class="fila"><small>Medido ${a ? a.fecha_hora.slice(11) : '–'} · últimas 6 h</small>${nota}</div>`;
 }
+
+// Capa con las lineas de medicion, en coordenadas de la imagen 1920x1080 (igual que el video).
+function capa(c) {
+  return c.lineas.map(([A, B], i) => {
+    const tr = (c.tramos && c.tramos[i]) || [[0, 1, 0]];
+    const p = t => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    const segs = tr.map(([t0, t1, cambio]) => {
+      const [x0, y0] = p(t0), [x1, y1] = p(t1);
+      return `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${cambio ? '#ff3b30' : '#2ecc40'}" stroke-width="9" stroke-linecap="round"/>`;
+    }).join('');
+    const cx = Math.max(A[0] - 34, 30), cy = A[1];
+    return segs + `<circle cx="${cx}" cy="${cy}" r="26" fill="#000" stroke="#fff" stroke-width="4"/>` +
+      `<text x="${cx}" y="${cy + 11}" text-anchor="middle" font-size="32" font-weight="700" fill="#fff">${i + 1}</text>`;
+  }).join('');
+}
+
+let tarjetasDe = '';
+function construirTarjetas(cams) {
+  tarjetasDe = cams.map(c => c.id).join(',');
+  document.getElementById('tarjetas').innerHTML = cams.map(c => `
+    <div class="panel cam" data-id="${c.id}">
+      <div class="medio">
+        <iframe src="https://www.youtube-nocookie.com/embed/${c.video}?autoplay=1&mute=1&playsinline=1&controls=0&rel=0"
+                title="En vivo: ${c.nombre}" allow="autoplay; encrypted-media; picture-in-picture"
+                referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <svg class="capa" viewBox="0 0 1920 1080" preserveAspectRatio="none" aria-hidden="true"></svg>
+      </div>
+      <div class="cuerpo"></div>
+    </div>`).join('');
+}
+
+function quitarTarjetas() {   // corta los 4 videos al salir del panel
+  document.getElementById('tarjetas').innerHTML = '';
+  tarjetasDe = '';
+}
+
+(function interruptorLineas() {
+  const caja = document.getElementById('ver-lineas'), t = document.getElementById('tarjetas');
+  try { caja.checked = localStorage.getItem('ver-lineas') !== '0'; } catch (e) {}
+  const aplicar = () => t.classList.toggle('sin-lineas', !caja.checked);
+  aplicar();
+  caja.addEventListener('change', () => {
+    aplicar();
+    try { localStorage.setItem('ver-lineas', caja.checked ? '1' : '0'); } catch (e) {}
+  });
+})();
 
 function mini(c) {
   const cv = document.querySelector(`canvas[data-graf="${c.id}"]`);
@@ -349,10 +405,13 @@ function pintarGeneral() {
     : '<li>Ningún canal sube y no hay lluvia fuerte prevista.</li>';
   metaGeneral();
 
-  document.getElementById('tarjetas').innerHTML = g.camaras.map(tarjeta).join('');
+  // Las tarjetas (con su video) se arman una sola vez; despues solo se actualizan los datos.
+  if (tarjetasDe !== g.camaras.map(c => c.id).join(',')) construirTarjetas(g.camaras);
   g.camaras.forEach(c => {
-    const img = document.querySelector(`img[data-cam="${c.id}"]`);
-    img.src = 'ultimo.jpg?ancho=640&cam=' + encodeURIComponent(c.id) + '&t=' + encodeURIComponent(c.actual ? c.actual.fecha_hora : '');
+    const el = document.querySelector(`.cam[data-id="${c.id}"]`);
+    el.style.setProperty('--color', c.actual ? css(COLORES[c.actual.estado] || '--suave') : css('--suave'));
+    el.querySelector('.cuerpo').innerHTML = tarjeta(c);
+    el.querySelector('.capa').innerHTML = capa(c);
     mini(c);
   });
   pintarClima(g, ['g-clima', 'g-cuenca', null]);
