@@ -200,7 +200,15 @@ def resumen(cam):
             "fecha_hora": u["fecha_hora"], "nivel": float(u["nivel_pct"]), "estado": u["estado"],
             "nota": u.get("nota", ""),
             "cortes": [float(u[k]) for k in u if k.startswith("corte_")],
+            "modo": "cortes", "etiquetas": None,
         }
+        # El detalle por linea de la ultima medicion (sirve tambien para las lineas de nivel).
+        try:
+            j = json.loads(rutas.ultimo_json.read_text(encoding="utf-8"))
+            if j.get("fecha_hora") == u["fecha_hora"] and "valores" in j:
+                actual.update(cortes=j["valores"], modo=j.get("modo", "cortes"), etiquetas=j.get("etiquetas"))
+        except (OSError, ValueError):
+            pass
     return rutas, filas, actual
 
 
@@ -288,14 +296,21 @@ def resumen_general():
     camaras = []
     for cam in CAMARAS:
         rutas, filas, actual = resumen(cam)
+        lineas = [[[int(v) for v in a], [int(v) for v in b]] for a, b in monitor.lineas_medicion(cam)[1]]
+        etiquetas = monitor.lineas_medicion(cam)[2]
         try:
-            tramos = json.loads(rutas.ultimo_json.read_text(encoding="utf-8"))["tramos"]
+            j = json.loads(rutas.ultimo_json.read_text(encoding="utf-8"))
+            tramos = j["tramos"]
+            if "lineas" in j:   # las lineas con las que se hizo la ultima medicion
+                lineas, etiquetas = j["lineas"], j.get("etiquetas", etiquetas)
+            if len(tramos) != len(lineas):
+                tramos = None
         except (OSError, ValueError, KeyError):
             tramos = None
         camaras.append({
             "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"], "video": monitor.CAMARAS[cam]["video"],
             # lineas de medicion en coordenadas de la imagen 1920x1080, y que partes cambiaron
-            "lineas": [[[int(v) for v in a], [int(v) for v in b]] for a, b in monitor.CAMARAS[cam]["cortes"]],
+            "lineas": lineas, "etiquetas": etiquetas,
             "tramos": tramos,
             "actual": actual, "tendencia": tendencia(filas),
             # ultimas 6 h para el mini grafico

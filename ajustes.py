@@ -22,15 +22,9 @@ SEMAFORO = {
     "ciudad_24h_mm": 20.0,   # lluvia caida en 24 h en la ciudad (suelo mojado)
     "marea_m": 0.5,          # marea medida por encima de la prevista
 }
+MAX_NIVELES = 12
 LIMITES_SEMAFORO = {"lluvia_6h_mm": (1, 200), "lluvia_pico_mm": (0.5, 100), "sierras_24h_mm": (1, 300),
                     "ciudad_24h_mm": (1, 300), "marea_m": (0.1, 3)}
-
-
-def _camara_actual(cam):
-    c = monitor.CAMARAS[cam]
-    return {"nombre": c["nombre"], "video": c["video"], "activa": c.get("activa", True),
-            "cortes": [[[int(a[0]), int(a[1])], [int(b[0]), int(b[1])]] for a, b in c["cortes"]],
-            "agua": [[float(w0), float(w1)] for w0, w1 in c["agua"]]}
 
 
 def defecto(intervalo=5.0):
@@ -42,7 +36,8 @@ def _original(cam):
     c = ORIGINALES[cam]
     return {"nombre": c["nombre"], "video": c["video"], "activa": True,
             "cortes": [[[int(a[0]), int(a[1])], [int(b[0]), int(b[1])]] for a, b in c["cortes"]],
-            "agua": [[float(w0), float(w1)] for w0, w1 in c["agua"]]}
+            "agua": [[float(w0), float(w1)] for w0, w1 in c["agua"]],
+            "niveles": []}   # lineas de nivel paralelas al canal; si hay, se mide con ellas
 
 
 def validar(entrada, intervalo_defecto=5.0):
@@ -109,6 +104,26 @@ def validar(entrada, intervalo_defecto=5.0):
                     raise ValueError(f"{cam}: el agua de base tiene que ir de izquierda a derecha, entre 0 y 1")
                 limpio.append([round(w0, 3), round(w1, 3)])
             c["agua"] = limpio
+        if "niveles" in e:
+            niveles = e["niveles"]
+            if not isinstance(niveles, list) or len(niveles) > MAX_NIVELES:
+                raise ValueError(f"{cam}: puede haber hasta {MAX_NIVELES} lineas de nivel")
+            limpio = []
+            for linea in niveles:
+                try:
+                    pct = float(linea["pct"])
+                    (x0, y0), (x1, y1) = linea["puntos"]
+                    pts = [[int(round(x0)), int(round(y0))], [int(round(x1)), int(round(y1))]]
+                except (TypeError, ValueError, KeyError):
+                    raise ValueError(f"{cam}: linea de nivel mal formada") from None
+                if not 1 <= pct <= 100:
+                    raise ValueError(f"{cam}: el porcentaje de cada linea de nivel va de 1 a 100")
+                if not all(0 <= x < monitor.ANCHO and 0 <= y < monitor.ALTO for x, y in pts):
+                    raise ValueError(f"{cam}: una linea de nivel se sale de la imagen")
+                if abs(pts[0][0] - pts[1][0]) + abs(pts[0][1] - pts[1][1]) < 40:
+                    raise ValueError(f"{cam}: una linea de nivel es demasiado corta")
+                limpio.append({"pct": round(pct, 1), "puntos": pts})
+            c["niveles"] = sorted(limpio, key=lambda n: n["pct"])
     if not any(c["activa"] for c in cfg["camaras"].values()):
         raise ValueError("tiene que quedar al menos una camara activa")
     return cfg
@@ -135,6 +150,8 @@ def aplicar(cfg):
         cambio_video = m["video"] != c["video"]
         m.update(nombre=c["nombre"], video=c["video"], activa=c["activa"],
                  cortes=[(tuple(a), tuple(b)) for a, b in c["cortes"]],
-                 agua=[tuple(w) for w in c["agua"]])
+                 agua=[tuple(w) for w in c["agua"]],
+                 niveles=[{"pct": n["pct"], "puntos": [tuple(n["puntos"][0]), tuple(n["puntos"][1])]}
+                          for n in c["niveles"]])
         if cambio_video:
             monitor._urls.pop(cam, None)   # la direccion del stream guardada ya no sirve

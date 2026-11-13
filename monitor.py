@@ -100,6 +100,8 @@ NIVEL_REF = 10        # por debajo de esto la captura renueva la referencia
 SIM_REF_MIN = 0.52    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
 SIM_NUEVA_REF = 0.85  # para guardarse como referencia, la captura tiene que parecerse asi a la anterior
 CONSIST_MIN = 0.70    # consistencia minima de los fotogramas de una captura para usarla como referencia
+TOCADA = 0.60         # fraccion de una linea de nivel que tiene que cambiar para darla por tocada
+MIN_PUNTOS_NIVEL = 60 # puntos medibles minimos (de 240) para poder evaluar una linea de nivel
 HUECO = 8             # puntos seguidos sin cambio que cortan el avance del agua (de 240 por linea)
 HUECO_ORILLA = 14     # idem, pero pegado a la orilla de base
 RECALIBRAR_TRAS = 3   # capturas seguidas no confiables pero estables -> se renueva la referencia
@@ -239,9 +241,24 @@ def alinear(img, objetivo):
     return alineada, valida, info
 
 
+def lineas_medicion(cam):
+    """(modo, segmentos, etiquetas) de las lineas con las que se mide la camara.
+
+    Si la camara tiene lineas de nivel (paralelas al canal, dibujadas sobre la pared a
+    distintas alturas), se mide con ellas; si no, con los cortes que cruzan el canal.
+    """
+    c = CAMARAS[cam]
+    if c.get("niveles"):
+        ns = sorted(c["niveles"], key=lambda n: n["pct"])
+        return ("niveles", [(tuple(n["puntos"][0]), tuple(n["puntos"][1])) for n in ns],
+                [f"{n['pct']:g}%" for n in ns])
+    return "cortes", list(c["cortes"]), [str(i + 1) for i in range(len(c["cortes"]))]
+
+
 def lineas_corte(cam):
+    """Puntos (x, y) a lo largo de cada linea de medicion en uso."""
     out = []
-    for a, b in CAMARAS[cam]["cortes"]:
+    for a, b in lineas_medicion(cam)[1]:
         a, b = np.array(a, float), np.array(b, float)
         s = np.linspace(0, 1, PUNTOS)[:, None]
         out.append((a + s * (b - a)).round().astype(int))
@@ -262,8 +279,8 @@ def medir(cam, img, ref, valida=None):
     cov = cv2.blur(a * b, k) - ma * mb
     corr = cov / (np.sqrt(np.maximum(va, 0) * np.maximum(vb, 0)) + 1e-3)
 
-    porcentajes, mascaras = [], []
-    for pts, (w0, w1) in zip(lineas_corte(cam), CAMARAS[cam]["agua"]):
+    por_linea = []
+    for pts in lineas_corte(cam):
         x, y = pts[:, 0], pts[:, 1]
         valido = vb[y, x] > VAR_MIN
         if valida is not None:
@@ -271,10 +288,42 @@ def medir(cam, img, ref, valida=None):
         cambio = (corr[y, x] < CORR_MIN) & valido
         # suavizado: un punto cuenta si la mayoria de sus vecinos tambien cambio
         suave = np.convolve(cambio.astype(float), np.ones(9) / 9, mode="same") > 0.5
+        por_linea.append((suave, valido))
+
+    if lineas_medicion(cam)[0] == "niveles":
+        return _medir_niveles(cam, por_linea)
+    porcentajes, mascaras = [], []
+    for (suave, valido), (w0, w1) in zip(por_linea, CAMARAS[cam]["agua"]):
         pct, avance = _avance(suave, valido, w0, w1)
         porcentajes.append(pct)
         mascaras.append(avance)
     return float(np.median(porcentajes)), porcentajes, mascaras
+
+
+def _medir_niveles(cam, por_linea):
+    """Lineas de nivel: cada una es una marca de altura; si el agua la tapa, llego hasta ahi.
+
+    Una linea cuenta como "tocada" cuando cambio la mayor parte de ella (el agua la cubre
+    entera; una sombra o un reflejo cambian solo un pedazo). El nivel es el de la linea mas
+    alta tocada, siempre que tambien lo esten todas las de abajo: el agua sube en orden.
+    Devuelve (nivel %, [% cambiado de cada linea], [mascara por linea: toda roja si esta tocada]).
+    """
+    niveles = sorted(CAMARAS[cam]["niveles"], key=lambda n: n["pct"])
+    valores, mascaras, nivel, cortado = [], [], 0.0, False
+    for n, (suave, valido) in zip(niveles, por_linea):
+        utiles = int(valido.sum())
+        fraccion = float(suave.sum()) / utiles if utiles else 0.0
+        medible = utiles >= MIN_PUNTOS_NIVEL
+        tocada = medible and fraccion >= TOCADA
+        valores.append(100.0 * fraccion)
+        mascaras.append(np.full(PUNTOS, tocada))
+        # una linea que no se puede medir (referencia sin textura, fuera de imagen) se saltea
+        if medible and not cortado:
+            if tocada:
+                nivel = float(n["pct"])
+            else:
+                cortado = True
+    return nivel, valores, mascaras
 
 
 def _avance(cambio, valido, w0, w1):
@@ -332,15 +381,17 @@ def estado(nivel):
 
 def anotar(cam, img, nivel, mascaras, cuando, nota=""):
     out = img.copy()
-    for i, (pts, masc) in enumerate(zip(lineas_corte(cam), mascaras)):
+    etiquetas = lineas_medicion(cam)[2]
+    for etiqueta, pts, masc in zip(etiquetas, lineas_corte(cam), mascaras):
         for (x, y), m in zip(pts, masc):
             cv2.circle(out, (int(x), int(y)), 3, (0, 0, 255) if m else (0, 220, 0), -1)
-        # numero de la linea, en un circulo al comienzo
-        x0, y0 = int(pts[0][0]), int(pts[0][1])
-        cx, cy = max(x0 - 30, 24), y0
-        cv2.circle(out, (cx, cy), 22, (0, 0, 0), -1)
-        cv2.circle(out, (cx, cy), 22, (255, 255, 255), 2)
-        cv2.putText(out, str(i + 1), (cx - 10, cy + 11), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+        # etiqueta de la linea (numero o porcentaje), en un recuadro al comienzo
+        (tw, th), _ = cv2.getTextSize(etiqueta, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+        x0 = int(min(max(pts[0][0] - tw - 18, 4), ANCHO - tw - 12))
+        y0 = int(min(max(pts[0][1], th + 8), ALTO - 70))
+        cv2.rectangle(out, (x0 - 6, y0 - th - 8), (x0 + tw + 6, y0 + 8), (0, 0, 0), -1)
+        cv2.rectangle(out, (x0 - 6, y0 - th - 8), (x0 + tw + 6, y0 + 8), (255, 255, 255), 2)
+        cv2.putText(out, etiqueta, (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
     est = estado(nivel)
     color = (0, 200, 0) if est == "normal" else (0, 165, 255) if est == "SUBIENDO" else (0, 0, 255)
     texto = f"{cuando:%d/%m %H:%M}  subida sobre la base {nivel:.0f}%  {est} {nota}"
@@ -384,7 +435,8 @@ def ciclo(cam, previo):
     img, consistencia = capturar(cam)
     propia = rutas.refs / f"ref_{ahora.hour:02d}.jpg"
     ref, hora_ref = referencia(rutas, ahora.hour)
-    n = len(CAMARAS[cam]["cortes"])
+    modo, segmentos, etiquetas = lineas_medicion(cam)
+    n = len(segmentos)
     archivo_previa, archivo_calidad = rutas.dir / "previa.jpg", rutas.dir / "calidad.json"
     # Corrige pequenos movimientos de la camara llevando la captura a la geometria de la
     # referencia (o de la imagen base si todavia no hay referencia).
@@ -451,16 +503,21 @@ def ciclo(cam, previo):
     est = "NO_CONFIABLE" if no_confiable else estado(nivel)
     cv2.imwrite(str(rutas.ultimo), anotar(cam, img, nivel, mascaras, ahora, nota))
     # Tramos de cada linea (desde, hasta, cambio) para dibujarlos sobre el video en la web.
-    rutas.ultimo_json.write_text(json.dumps({"fecha_hora": f"{ahora:%Y-%m-%d %H:%M}",
-                                             "tramos": [tramos(m) for m in mascaras]}), encoding="utf-8")
+    rutas.ultimo_json.write_text(json.dumps({
+        "fecha_hora": f"{ahora:%Y-%m-%d %H:%M}", "modo": modo, "etiquetas": etiquetas,
+        "lineas": [[[int(a[0]), int(a[1])], [int(b[0]), int(b[1])]] for a, b in segmentos],
+        "valores": [round(float(c), 1) for c in cortes],
+        "tramos": [tramos(m) for m in mascaras]}), encoding="utf-8")
     cv2.imwrite(str(rutas.capturas / f"{ahora:%Y%m%d_%H%M}.jpg"),
                 cv2.resize(img, (960, 540)), [cv2.IMWRITE_JPEG_QUALITY, 80])
     nuevo = not rutas.registro.exists()
     with rutas.registro.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if nuevo:
-            w.writerow(["fecha_hora", "nivel_pct", "estado"] + [f"corte_{i + 1}" for i in range(n)] + ["nota"])
-        w.writerow([f"{ahora:%Y-%m-%d %H:%M}", f"{nivel:.1f}", est] + [f"{c:.1f}" for c in cortes] + [nota])
+            w.writerow(["fecha_hora", "nivel_pct", "estado"] + [f"corte_{i + 1}" for i in range(4)] + ["nota"])
+        # El registro tiene siempre 4 columnas de lineas (el detalle completo va en ultimo.json).
+        w.writerow([f"{ahora:%Y-%m-%d %H:%M}", f"{nivel:.1f}", est]
+                   + [f"{c:.1f}" for c in (list(cortes) + [0.0] * 4)[:4]] + [nota])
 
     linea = f"{ahora:%d/%m %H:%M}  [{cam}] nivel {nivel:5.1f}%  {est} {nota}"
     print(linea, flush=True)

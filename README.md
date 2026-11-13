@@ -65,6 +65,7 @@ Comandos del bot: `/estado`, `/camaras`, `/foto <cámara>`.
 
 En `/admin` hay un panel con clave para cambiar la configuración sin tocar el código: nombre, video y estado de cada cámara, las líneas de medición (se arrastran sobre la imagen, junto con las orillas del agua normal), el intervalo de medición y los umbrales del semáforo. También permite recalibrar una cámara.
 
+- **Líneas de nivel:** además de los cortes que cruzan el canal, se pueden dibujar líneas paralelas al agua sobre la pared, cada una con el porcentaje que representa. Si una cámara tiene líneas de nivel se mide con ellas: una línea cuenta cuando el agua la tapa casi entera (60 % o más) y también están tapadas las de abajo.
 - La clave va en `ADMIN_CLAVE` del `.env` (8 caracteres o más). Si queda vacía, el panel está desactivado.
 - Lo que se guarda queda en `datos/config.json` y pisa los valores por defecto del código.
 - Tras 5 claves incorrectas desde la misma dirección, el ingreso se bloquea 15 minutos. Las sesiones duran 12 horas.

@@ -51,6 +51,10 @@
   .orilla { fill: #37b6ff; stroke: #003a66; stroke-width: 4; cursor: ew-resize; }
   .leyenda { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .85rem; color: var(--suave); margin-top: 8px; }
   .leyenda i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 5px; border: 2px solid #000; }
+  .punta-nivel { fill: #ffb000; stroke: #000; stroke-width: 4; cursor: grab; }
+  .fila-nivel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--borde); }
+  .fila-nivel input { width: 90px; }
+  .fila-nivel span { color: var(--suave); font-size: .88rem; }
   #ingreso { max-width: 380px; margin: 8vh auto 0; }
 </style>
 </head>
@@ -94,9 +98,17 @@
           Los puntos celestes marcan dónde empieza y termina el agua normal en esa línea; lo que cambie entre ellos no cuenta como subida.</p>
         <div class="lienzo"><img id="base" alt="Imagen de la cámara para marcar las líneas"><svg id="editor" viewBox="0 0 1920 1080"></svg></div>
         <div class="leyenda">
-          <span><i style="background:#fff"></i>punta de la línea (borde del canal)</span>
+          <span><i style="background:#fff"></i>punta de un corte (borde del canal)</span>
           <span><i style="background:#37b6ff"></i>orilla del agua normal</span>
+          <span><i style="background:#ffb000;border-radius:3px"></i>punta de una línea de nivel</span>
         </div>
+
+        <h2 style="margin-top:18px">Líneas de nivel (paralelas al canal)</h2>
+        <p class="nota">Son marcas de altura: dibujá cada una sobre la pared o el talud, paralela al agua, y ponele el porcentaje que representa.
+          Cuando el agua tapa una línea entera, el nivel llegó hasta ahí. Una línea pegada al borde del agua de hoy (por ejemplo, con 5&nbsp;%) avisa apenas el canal sale del nivel normal.
+          <b>Si hay al menos una línea de nivel, la cámara se mide con ellas y los cortes dejan de usarse.</b></p>
+        <div id="lista-niveles"></div>
+        <div class="acciones"><button id="agregar-nivel">Agregar línea de nivel</button></div>
         <div class="acciones">
           <button class="principal" id="guardar-cam">Guardar cambios</button>
           <button id="deshacer-cam">Deshacer lo no guardado</button>
@@ -191,16 +203,51 @@ document.querySelector('.solapas').addEventListener('click', e => {
 // ---------------------------------------------------------------- camaras
 const copia = o => JSON.parse(JSON.stringify(o));
 function elegirCamara(id) {
-  cam = id; $('cam').value = id; borrador = copia(cfg.camaras[id]);
+  cam = id; $('cam').value = id; borrador = copia(cfg.camaras[id]); borrador.niveles = borrador.niveles || [];
   $('nombre').value = borrador.nombre; $('video').value = borrador.video; $('activa').checked = borrador.activa;
   $('base').src = 'api/base?cam=' + encodeURIComponent(id) + '&v=' + Date.now();
-  dibujar(); decir('estado-cam', '');
+  listarNiveles(); dibujar(); decir('estado-cam', '');
 }
 $('cam').addEventListener('change', () => elegirCamara($('cam').value));
 
+function listarNiveles() {
+  const ns = borrador.niveles;
+  $('lista-niveles').innerHTML = ns.length ? ns.map((n, i) =>
+    `<div class="fila-nivel"><label for="pct-${i}" style="margin:0">Línea ${i + 1} representa</label>
+      <input type="number" id="pct-${i}" data-i="${i}" min="1" max="100" step="1" value="${n.pct}"><span>% del canal</span>
+      <button data-quitar="${i}">Quitar</button></div>`).join('')
+    : '<p class="nota">Todavía no hay líneas de nivel: esta cámara se mide con los cortes.</p>';
+}
+$('lista-niveles').addEventListener('input', e => {
+  const i = e.target.dataset.i; if (i === undefined) return;
+  borrador.niveles[+i].pct = +e.target.value; dibujar();
+});
+$('lista-niveles').addEventListener('click', e => {
+  const i = e.target.dataset.quitar; if (i === undefined) return;
+  borrador.niveles.splice(+i, 1); listarNiveles(); dibujar();
+});
+$('agregar-nivel').addEventListener('click', () => {
+  if (borrador.niveles.length >= 12) return decir('estado-cam', 'Puede haber hasta 12 líneas de nivel.', 'mal');
+  // aparece en el centro de la imagen, un poco mas arriba que la anterior, lista para arrastrar
+  const k = borrador.niveles.length, y = 620 - k * 45;
+  const usados = borrador.niveles.map(n => n.pct), pct = [5, 25, 50, 75, 100].find(p => !usados.includes(p)) || 50;
+  borrador.niveles.push({ pct, puntos: [[700, y], [1200, y]] });
+  listarNiveles(); dibujar();
+  decir('estado-cam', 'Línea agregada en el centro de la imagen: arrastrá sus puntas naranjas hasta la pared y guardá.');
+});
+
 function dibujar() {
   const svg = $('editor');
-  svg.innerHTML = borrador.cortes.map(([a, b], i) => {
+  const conNiveles = borrador.niveles.length > 0;
+  const niveles = borrador.niveles.map((n, i) => {
+    const [a, b] = n.puntos;
+    return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#ffb000" stroke-width="8" stroke-linecap="round"/>
+      <rect class="punta-nivel" data-t="n" data-l="${i}" data-k="0" x="${a[0] - 18}" y="${a[1] - 18}" width="36" height="36" rx="6"/>
+      <rect class="punta-nivel" data-t="n" data-l="${i}" data-k="1" x="${b[0] - 18}" y="${b[1] - 18}" width="36" height="36" rx="6"/>
+      <text x="${(a[0] + b[0]) / 2}" y="${(a[1] + b[1]) / 2 - 16}" text-anchor="middle" font-size="40" font-weight="700" fill="#ffb000" stroke="#000" stroke-width="2" paint-order="stroke">${n.pct}%</text>`;
+  }).join('');
+  // con lineas de nivel, los cortes quedan atenuados y sin puntas (no se usan)
+  svg.innerHTML = (conNiveles ? '<g opacity=".3" pointer-events="none">' : '<g>') + borrador.cortes.map(([a, b], i) => {
     const [w0, w1] = borrador.agua[i], p = t => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
     const [x0, y0] = p(w0), [x1, y1] = p(w1);
     return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="#2ecc40" stroke-width="7" stroke-linecap="round"/>
@@ -210,7 +257,7 @@ function dibujar() {
       <circle class="punta" data-l="${i}" data-k="a" cx="${a[0]}" cy="${a[1]}" r="20"/>
       <circle class="punta" data-l="${i}" data-k="b" cx="${b[0]}" cy="${b[1]}" r="20"/>
       <text x="${a[0]}" y="${a[1] - 30}" text-anchor="middle" font-size="40" font-weight="700" fill="#fff" stroke="#000" stroke-width="2">${i + 1}</text>`;
-  }).join('');
+  }).join('') + '</g>' + niveles;
 }
 
 let agarrado = null;
@@ -220,12 +267,14 @@ function aImagen(e) {
   return [Math.min(Math.max((e.clientX - r.left) / r.width * 1920, 0), 1919), Math.min(Math.max((e.clientY - r.top) / r.height * 1080, 0), 1079)];
 }
 editor.addEventListener('pointerdown', e => {
-  const c = e.target.closest('circle'); if (!c) return;
-  agarrado = { l: +c.dataset.l, k: c.dataset.k }; editor.setPointerCapture(e.pointerId); e.preventDefault();
+  const c = e.target.closest('circle, rect'); if (!c) return;
+  agarrado = { t: c.dataset.t, l: +c.dataset.l, k: c.dataset.k }; editor.setPointerCapture(e.pointerId); e.preventDefault();
 });
 editor.addEventListener('pointermove', e => {
   if (!agarrado) return;
-  const [x, y] = aImagen(e), { l, k } = agarrado, [a, b] = borrador.cortes[l];
+  const [x, y] = aImagen(e), { t, l, k } = agarrado;
+  if (t === 'n') { borrador.niveles[l].puntos[+k] = [Math.round(x), Math.round(y)]; return dibujar(); }
+  const [a, b] = borrador.cortes[l];
   if (k === 'a' || k === 'b') {
     borrador.cortes[l][k === 'a' ? 0 : 1] = [Math.round(x), Math.round(y)];
   } else {
@@ -249,14 +298,14 @@ $('guardar-cam').addEventListener('click', async () => {
   borrador.nombre = $('nombre').value.trim(); borrador.video = $('video').value.trim(); borrador.activa = $('activa').checked;
   const nuevo = copia(cfg); nuevo.camaras[cam] = borrador;
   if (await guardar(nuevo, 'estado-cam', 'Guardado. Se usa a partir de la próxima medición.')) {
-    $('cam').selectedOptions[0].textContent = cfg.camaras[cam].nombre; borrador = copia(cfg.camaras[cam]);
+    $('cam').selectedOptions[0].textContent = cfg.camaras[cam].nombre; borrador = copia(cfg.camaras[cam]); listarNiveles(); dibujar();
   }
 });
 $('deshacer-cam').addEventListener('click', () => elegirCamara(cam));
 $('fabrica-cam').addEventListener('click', () => {
-  borrador = copia(defecto.camaras[cam]);
+  borrador = copia(defecto.camaras[cam]); borrador.niveles = borrador.niveles || [];
   $('nombre').value = borrador.nombre; $('video').value = borrador.video; $('activa').checked = borrador.activa;
-  dibujar(); decir('estado-cam', 'Se cargaron los valores originales. Tocá «Guardar cambios» para aplicarlos.');
+  listarNiveles(); dibujar(); decir('estado-cam', 'Se cargaron los valores originales. Tocá «Guardar cambios» para aplicarlos.');
 });
 $('recalibrar').addEventListener('click', async () => {
   if (!confirm(`¿Recalibrar «${cfg.camaras[cam].nombre}»? Se borran sus imágenes de referencia y el nivel actual pasa a ser el normal.`)) return;
