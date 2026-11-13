@@ -251,7 +251,8 @@ def estado_camara(cam):
         "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"], "video": monitor.CAMARAS[cam]["video"],
         "actual": actual,
         "tendencia": tendencia(filas),
-        "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"]), "estado": r["estado"]} for r in filas],
+        "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"]), "estado": r["estado"]} for r in filas
+                      if r["estado"] != "NO_CONFIABLE"],
         "camaras": lista_camaras(),
         "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
         "midiendo": situacion["midiendo"] == cam,
@@ -279,7 +280,8 @@ def resumen_general():
             "tramos": tramos,
             "actual": actual, "tendencia": tendencia(filas),
             # ultimas 6 h para el mini grafico
-            "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"])} for r in filas[-72:]],
+            "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"])} for r in filas[-72:]
+                          if r["estado"] != "NO_CONFIABLE"],
             "midiendo": situacion["midiendo"] == cam, "error": situacion["errores"].get(cam),
         })
     return {

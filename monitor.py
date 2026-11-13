@@ -66,8 +66,9 @@ CAMARAS = {
     "casanova": {
         "nombre": "Casanova y Fuerte Argentino",
         "video": "R5AjH5tHUvo",
-        "cortes": [((980, 215), (1310, 215)), ((880, 270), (1380, 270)),
-                   ((760, 330), (1440, 340)), ((640, 400), (1460, 420))],
+        # Los extremos izquierdos arrancan en el pasto, a la derecha de la senda peatonal.
+        "cortes": [((1040, 215), (1310, 215)), ((935, 270), (1380, 270)),
+                   ((815, 330), (1440, 340)), ((705, 400), (1460, 420))],
     },
     # Aca solo se ve el cauce y la orilla derecha: los cortes van del borde
     # izquierdo de la imagen hasta el filo del talud contra el pasto.
