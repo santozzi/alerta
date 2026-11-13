@@ -87,8 +87,13 @@
   .riesgo .meta { margin-left: auto; text-align: right; color: var(--suave); font-size: .82rem; }
   @media (max-width: 640px) { .riesgo { flex-wrap: wrap; } .riesgo .meta { margin-left: 0; text-align: left; flex-basis: 100%; } }
   .camaras { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-bottom: 16px; }
-  .cam { padding: 0; overflow: hidden; display: flex; flex-direction: column;
-         border-top: 5px solid var(--color, var(--suave)); }
+  .cam { padding: 0; overflow: hidden; display: flex; flex-direction: column; position: relative;
+         border-top: 5px solid var(--color, var(--suave)); transition: transform .15s; }
+  .cam:hover { transform: translateY(-2px); }
+  /* Capa transparente encima de todo: el clic (tambien sobre el video) abre el detalle */
+  .cam .cubre { position: absolute; inset: 0; z-index: 2; cursor: pointer; }
+  .cam .cubre:focus-visible { outline: 3px solid var(--agua); outline-offset: -3px; }
+  .cam .ir { color: var(--agua); font-size: .85rem; white-space: nowrap; }
   .cam .medio { position: relative; aspect-ratio: 16/9; background: #000; }
   .cam .medio iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
   .cam .medio .capa { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -306,7 +311,7 @@ function tarjeta(c) {
   }
   const nota = c.error ? `<small style="color:${css('--critico')}">Falló la captura</small>`
     : c.midiendo ? '<small>Capturando…</small>' : a && a.nota ? `<small>${a.nota}</small>` : '';
-  return `<div class="nombre"><b>${c.nombre}</b><a href="#${encodeURIComponent(c.id)}">ver detalle →</a></div>
+  return `<div class="nombre"><b>${c.nombre}</b><span class="ir">ver detalle →</span></div>
       <div class="fila"><span class="g-nivel">${a ? Math.round(a.nivel) + '%' : '–'}</span>
         <span class="g-etiqueta">${a ? NOMBRES[a.estado] || a.estado : 'sin datos'}</span></div>
       <div class="fila">${ritmo}</div>
@@ -341,6 +346,7 @@ function construirTarjetas(cams) {
         <svg class="capa" viewBox="0 0 1920 1080" preserveAspectRatio="none" aria-hidden="true"></svg>
       </div>
       <div class="cuerpo"></div>
+      <a class="cubre" href="#${encodeURIComponent(c.id)}" aria-label="Ver ${c.nombre} en detalle"></a>
     </div>`).join('');
 }
 
