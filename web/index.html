@@ -50,6 +50,15 @@
   .dato.llueve b { color: var(--agua); }
   .flecha { display: inline-block; transition: transform .5s; }
   .fuente { font-size: .78rem; margin-top: 10px; }
+  .subtitulo { font-size: .95rem; margin: 18px 0 2px; }
+  .tabla-cont { overflow-x: auto; }
+  .cuenca { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 8px; }
+  .cuenca th, .cuenca td { padding: 7px 10px; border-bottom: 1px solid var(--borde); text-align: right; white-space: nowrap; }
+  .cuenca th { color: var(--suave); font-weight: 500; font-size: .78rem; }
+  .cuenca th:first-child, .cuenca td:first-child { text-align: left; white-space: normal; }
+  .cuenca td { font-variant-numeric: tabular-nums; }
+  .cuenca td.llueve { color: var(--agua); font-weight: 600; }
+  .cuenca small { color: var(--suave); display: block; font-size: .75rem; }
   .leyenda { display: flex; gap: 16px; font-size: .8rem; color: var(--suave); margin-bottom: 6px; flex-wrap: wrap; }
   .leyenda i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
   .solapas { display: flex; flex-wrap: wrap; gap: 0 6px; margin-bottom: 16px; border-bottom: 1px solid var(--borde); }
@@ -105,6 +114,9 @@
     <section class="panel ancho">
       <h2>Clima en Bahía Blanca</h2>
       <div class="clima" id="clima"><p class="detalle">Cargando clima…</p></div>
+      <h3 class="subtitulo">Lluvia en la cuenca del Napostá</h3>
+      <p class="detalle">La lluvia en las sierras tarda horas en llegar a la ciudad: si llueve fuerte arriba, los canales pueden subir aunque acá no llueva.</p>
+      <div class="tabla-cont"><table class="cuenca" id="cuenca"></table></div>
       <p class="detalle fuente" id="clima-fuente"></p>
     </section>
 
@@ -246,8 +258,16 @@ function pintarClima() {
     dato(mm(k.lluvia_24h), 'Lluvia 24 h', '', k.lluvia_24h > 0) +
     dato(mm(k.prevista_6h), 'Prevista 6 h', `prob. máx. ${Math.round(k.prob_max_6h)} %`, k.prevista_6h > 0) +
     dato(Math.round(k.temp) + ' °C', 'Temperatura');
-  fuente.innerHTML = `Datos de modelo meteorológico (<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>) para Bahía Blanca, ` +
-    `no de un pluviómetro. Actualizado ${k.hora.slice(11, 16)}.` +
+  const tabla = document.getElementById('cuenca');
+  const celda = v => `<td class="${v >= 1 ? 'llueve' : ''}">${mm(v)}</td>`;
+  tabla.innerHTML = (k.cuenca || []).length
+    ? '<thead><tr><th>Lugar</th><th>Últimas 24 h</th><th>Últimas 72 h</th><th>Próximas 6 h</th><th>Próximas 24 h</th><th>Pico previsto</th></tr></thead><tbody>' +
+      k.cuenca.map(p => `<tr><td>${p.nombre}${p.elevacion != null ? `<small>${Math.round(p.elevacion)} m de altura</small>` : ''}</td>` +
+        celda(p.lluvia_24h) + celda(p.lluvia_72h) + celda(p.prevista_6h) + celda(p.prevista_24h) +
+        `<td class="${p.pico_previsto >= 1 ? 'llueve' : ''}">${mm(p.pico_previsto)}/h</td></tr>`).join('') + '</tbody>'
+    : '';
+  fuente.innerHTML = `Datos de modelo meteorológico (<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>) para Bahía Blanca y puntos aproximados de la cuenca, ` +
+    `no de pluviómetros. Actualizado ${k.hora.slice(11, 16)}.` +
     (datos.clima_error ? ' Último intento falló: ' + datos.clima_error : '');
 }
 

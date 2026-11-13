@@ -30,6 +30,34 @@ CLIMA_URL = (
     "&timezone=America%2FArgentina%2FBuenos_Aires&wind_speed_unit=kmh")
 clima = {"datos": None, "error": None, "t": 0.0}
 
+# Lluvia en la cuenca del Napostá: la lluvia en las sierras llega a la ciudad
+# horas despues. Coordenadas aproximadas, elegidas a mano.
+CUENCA = [
+    ("Cuenca alta (sierras de Ventania)", -38.07, -62.03),
+    ("Cuenca media (al norte de la ciudad)", -38.25, -62.20),
+    ("Bahía Blanca", -38.72, -62.27),
+]
+CUENCA_URL = (
+    "https://api.open-meteo.com/v1/forecast?latitude=" + ",".join(str(p[1]) for p in CUENCA)
+    + "&longitude=" + ",".join(str(p[2]) for p in CUENCA)
+    + "&hourly=precipitation&past_hours=72&forecast_hours=24"
+    "&timezone=America%2FArgentina%2FBuenos_Aires")
+
+
+def resumir_cuenca(lista, hora_actual):
+    out = []
+    for (nombre, lat, lon), j in zip(CUENCA, lista):
+        h = j["hourly"]
+        pas = [p or 0.0 for t, p in zip(h["time"], h["precipitation"]) if t[:13] < hora_actual]
+        fut = [p or 0.0 for t, p in zip(h["time"], h["precipitation"]) if t[:13] > hora_actual]
+        out.append({
+            "nombre": nombre, "elevacion": j.get("elevation"),
+            "lluvia_24h": sum(pas[-24:]), "lluvia_72h": sum(pas[-72:]),
+            "prevista_6h": sum(fut[:6]), "prevista_24h": sum(fut[:24]),
+            "pico_previsto": max(fut[:24], default=0.0),
+        })
+    return out
+
 
 def resumir_clima(j):
     c, h = j["current"], j["hourly"]
@@ -56,7 +84,10 @@ def bucle_clima():
     while True:
         try:
             with urllib.request.urlopen(CLIMA_URL, timeout=30) as r:
-                clima["datos"] = resumir_clima(json.load(r))
+                datos = resumir_clima(json.load(r))
+            with urllib.request.urlopen(CUENCA_URL, timeout=30) as r:
+                datos["cuenca"] = resumir_cuenca(json.load(r), datos["hora"][:13])
+            clima["datos"] = datos
             clima["error"], clima["t"] = None, time.time()
         except Exception as e:
             clima["error"] = f"{datetime.now():%d/%m %H:%M} {e}"
