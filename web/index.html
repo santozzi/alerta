@@ -101,6 +101,12 @@
   .sin-lineas .capa { display: none; }
   .cam .nombre { display: flex; justify-content: space-between; gap: 8px; }
   .cam .nombre a { font-weight: 400; font-size: .85rem; white-space: nowrap; }
+  .rosa-cont { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 6px; }
+  .rosa-cont svg { width: 240px; max-width: 100%; height: auto; flex: none; }
+  .rosa-txt { flex: 1 1 220px; color: var(--suave); font-size: .9rem; }
+  .rosa-txt b { color: var(--texto); font-size: 1.4rem; display: block; font-variant-numeric: tabular-nums; }
+  .rosa-txt p { margin: 6px 0; }
+  .rosa-txt .aviso { color: var(--subiendo); font-weight: 600; }
   .controles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 10px;
                color: var(--suave); font-size: .85rem; }
   .controles label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -144,6 +150,11 @@
       <p class="detalle fuente">Predicción del Servicio de Hidrografía Naval para Puerto Ingeniero White y altura medida cada hora en el mareógrafo de Puerto Belgrano.
         Con marea alta los canales desaguan peor. Si la marea medida supera a la prevista (por ejemplo, con viento del sur o sudeste), el estuario está más lleno de lo normal.
         Las alturas son sobre el plano de reducción de cada puerto: no se comparan entre puertos.</p>
+      <h3 class="subtitulo">Viento ahora en Bahía Blanca</h3>
+      <div class="rosa-cont">
+        <svg id="g-rosa" viewBox="-130 -130 260 260" role="img" aria-label="Rosa de los vientos con la dirección y la velocidad del viento"></svg>
+        <div class="rosa-txt" id="g-viento-txt"></div>
+      </div>
     </section>
 
     <section class="panel">
@@ -463,6 +474,68 @@ function pintarMarea() {
   }
   caja.innerHTML = html;
   curvaMarea();
+  rosaVientos();
+}
+
+const PUNTOS16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
+const NOMBRE_PUNTO = { N: 'norte', NE: 'noreste', E: 'este', SE: 'sudeste', S: 'sur', SO: 'sudoeste', O: 'oeste', NO: 'noroeste' };
+// Sector sur-sudeste (de SE a SSO): el viento de ese lado puede empujar agua hacia el estuario.
+const SECTOR_EMPUJE = [123.75, 191.25];
+
+function rosaVientos() {
+  const svg = document.getElementById('g-rosa'), txt = document.getElementById('g-viento-txt');
+  const k = general && general.clima;
+  if (!k) { svg.innerHTML = ''; txt.innerHTML = '<p>Cargando viento…</p>'; return; }
+  const R = 100, MAX = 80;   // radio del circulo y km/h que llegan al borde
+  const pol = (ang, r) => [Math.sin(ang * Math.PI / 180) * r, -Math.cos(ang * Math.PI / 180) * r];
+  const arco = (a0, a1, r) => {
+    const [x0, y0] = pol(a0, r), [x1, y1] = pol(a1, r);
+    return `M0 0 L${x0} ${y0} A${r} ${r} 0 0 1 ${x1} ${y1} Z`;
+  };
+  let s = `<path d="${arco(SECTOR_EMPUJE[0], SECTOR_EMPUJE[1], R)}" fill="${css('--subiendo')}" opacity=".16"/>`;
+  [R, R * 2 / 3, R / 3].forEach((r, i) =>
+    s += `<circle r="${r}" fill="none" stroke="${css('--borde')}" stroke-width="${i ? 1 : 1.5}"/>`);
+  // escala de velocidad sobre el eje este
+  [[R / 3, MAX / 3], [R * 2 / 3, MAX * 2 / 3], [R, MAX]].forEach(([r, v]) =>
+    s += `<text x="${r - 2}" y="-4" font-size="8" text-anchor="end" fill="${css('--suave')}">${Math.round(v)}</text>`);
+  for (let i = 0; i < 16; i++) {
+    const ang = i * 22.5, principal = i % 2 === 0;
+    const [x0, y0] = pol(ang, R - (principal ? 8 : 4)), [x1, y1] = pol(ang, R);
+    s += `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="${css('--suave')}" stroke-width="${principal ? 1.5 : 1}"/>`;
+    if (principal) {
+      const [tx, ty] = pol(ang, R + 15);
+      const nombre = PUNTOS16[i];
+      s += `<text x="${tx}" y="${ty + 4}" font-size="${nombre.length === 1 ? 13 : 10}" font-weight="${nombre.length === 1 ? 700 : 500}"
+              text-anchor="middle" fill="${nombre === 'N' ? css('--critico') : css('--texto')}">${nombre}</text>`;
+    }
+  }
+  // vector: va hacia donde sopla el viento (desde la direccion de origen + 180)
+  const largo = Math.min(k.viento, MAX) / MAX * R, largoR = Math.min(k.rafagas, MAX) / MAX * R;
+  const col = css('--agua');
+  if (k.viento < 1) {
+    s += `<circle r="5" fill="${col}"/>`;
+  } else {
+    s += `<g transform="rotate(${k.direccion + 180})">
+      <line x1="0" y1="${largo / 2}" x2="0" y2="${-largoR / 2}" stroke="${col}" stroke-width="2" stroke-dasharray="4 4" opacity=".6"/>
+      <line x1="0" y1="${largo / 2}" x2="0" y2="${-largo / 2 + 10}" stroke="${col}" stroke-width="6" stroke-linecap="round"/>
+      <path d="M0 ${-largo / 2 - 6} L-10 ${-largo / 2 + 12} L10 ${-largo / 2 + 12} Z" fill="${col}"/>
+      <circle cy="${largo / 2}" r="5" fill="${col}"/>
+    </g>`;
+  }
+  svg.innerHTML = s;
+
+  const idx = Math.round(k.direccion / 22.5) % 16, desde = PUNTOS16[idx];
+  const hacia = PUNTOS16[(idx + 8) % 16];
+  const nom = p => NOMBRE_PUNTO[p] || p;
+  const d = k.direccion % 360;
+  const empuja = d >= SECTOR_EMPUJE[0] && d <= SECTOR_EMPUJE[1] && k.viento >= 20;
+  txt.innerHTML = `<b>${Math.round(k.viento)} km/h del ${desde}</b>
+    <p>Sopla desde el ${nom(desde)} (${Math.round(k.direccion)}°) hacia el ${nom(hacia)}. Ráfagas de ${Math.round(k.rafagas)} km/h (línea punteada).</p>
+    <p>La flecha va hacia donde sopla el viento y su largo es la velocidad; el borde del círculo son ${MAX} km/h.</p>
+    <p>${empuja
+      ? '<span class="aviso">Viento fuerte del sector sur-sudeste: puede subir el agua del estuario y hacer que los canales desagüen peor.</span>'
+      : 'Zona sombreada: viento del sector sur-sudeste, que puede subir el agua del estuario.'}</p>
+    <p style="font-size:.78rem">Datos de modelo (Open-Meteo), actualizados ${k.hora.slice(11, 16)}.</p>`;
 }
 
 function curvaMarea() {
