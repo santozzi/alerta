@@ -201,9 +201,15 @@ def estado(nivel):
 
 def anotar(cam, img, nivel, mascaras, cuando, nota=""):
     out = img.copy()
-    for pts, masc in zip(lineas_corte(cam), mascaras):
+    for i, (pts, masc) in enumerate(zip(lineas_corte(cam), mascaras)):
         for (x, y), m in zip(pts, masc):
             cv2.circle(out, (int(x), int(y)), 3, (0, 0, 255) if m else (0, 220, 0), -1)
+        # numero de la linea, en un circulo al comienzo
+        x0, y0 = int(pts[0][0]), int(pts[0][1])
+        cx, cy = max(x0 - 30, 24), y0
+        cv2.circle(out, (cx, cy), 22, (0, 0, 0), -1)
+        cv2.circle(out, (cx, cy), 22, (255, 255, 255), 2)
+        cv2.putText(out, str(i + 1), (cx - 10, cy + 11), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
     est = estado(nivel)
     color = (0, 200, 0) if est == "normal" else (0, 165, 255) if est == "SUBIENDO" else (0, 0, 255)
     texto = f"{cuando:%d/%m %H:%M}  subida sobre la base {nivel:.0f}%  {est} {nota}"

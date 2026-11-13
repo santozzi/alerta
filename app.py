@@ -196,7 +196,10 @@ def estado_camara(cam):
         "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"]), "estado": r["estado"]} for r in filas],
         "camaras": lista_camaras(),
         "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
-        "midiendo": situacion["midiendo"] == cam, "error": situacion["errores"].get(cam),
+        "midiendo": situacion["midiendo"] == cam,
+        "midiendo_otra": (monitor.CAMARAS[situacion["midiendo"]]["nombre"]
+                          if situacion["midiendo"] and situacion["midiendo"] != cam else None),
+        "error": situacion["errores"].get(cam),
         "clima": clima["datos"], "clima_error": clima["error"],
     }
 

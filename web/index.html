@@ -100,6 +100,8 @@
       <p class="detalle" id="medido">Esperando la primera medición…</p>
       <p class="detalle" id="proxima"></p>
       <p class="error" id="error" hidden></p>
+      <h3 class="subtitulo">Por línea de medición</h3>
+      <p class="detalle">El nivel sale de 4 líneas que cruzan el canal en la imagen (están dibujadas y numeradas en «Última captura», abajo). Cada barra es cuánto se cubrió esa línea; el número grande de arriba es el valor del medio de las cuatro.</p>
       <div class="cortes" id="cortes"></div>
     </section>
 
@@ -261,9 +263,10 @@ function pintar() {
   const h = 0.08 + 0.92 * Math.min(a.nivel, 100) / 100;
   document.querySelector('#recorte rect').style.transform = `translateY(${(1 - h) * 160}px)`;
 
-  const nombres = ['lejos', 'medio', 'medio', 'cerca'];
+  const n = a.cortes.length;
   document.getElementById('cortes').innerHTML = a.cortes.map((c, i) =>
-    `<div class="corte"><div class="barra"><i style="width:${Math.min(c, 100)}%"></i></div>${nombres[i] || ''} ${Math.round(c)}%</div>`).join('');
+    `<div class="corte"><div class="barra"><i style="width:${Math.min(c, 100)}%"></i></div>` +
+    `Línea ${i + 1}${i === 0 ? ' (lejos)' : i === n - 1 ? ' (cerca)' : ''}: ${Math.round(c)}%</div>`).join('');
 
   if (a.fecha_hora !== ultimaFoto) {
     ultimaFoto = a.fecha_hora;
@@ -313,11 +316,12 @@ function pintarClima() {
 function cuenta() {
   const p = document.getElementById('proxima');
   if (!datos) return;
-  if (datos.midiendo) { p.textContent = 'Midiendo ahora…'; return; }
+  if (datos.midiendo) { p.textContent = 'Capturando esta cámara ahora (tarda unos segundos)…'; return; }
+  if (datos.midiendo_otra) { p.textContent = `Ronda en curso: midiendo ${datos.midiendo_otra}; esta cámara se actualiza en breve.`; return; }
   const falta = Math.round(datos.proxima - datos.ahora - (Date.now() - datos.recibido) / 1000);
   p.textContent = falta > 0
     ? `Próxima medición en ${Math.floor(falta / 60)}:${String(falta % 60).padStart(2, '0')} (cada ${datos.intervalo_min} min)`
-    : 'Midiendo ahora…';
+    : 'Empezando la próxima ronda de medición…';
 }
 
 function grafico() {
