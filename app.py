@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -29,6 +29,20 @@ CLIMA_URL = (
     "&hourly=precipitation,precipitation_probability&past_hours=24&forecast_hours=7"
     "&timezone=America%2FArgentina%2FBuenos_Aires&wind_speed_unit=kmh")
 clima = {"datos": None, "error": None, "t": 0.0}
+marea_estado = {"datos": None, "error": None}
+SOBREELEVACION = 0.5   # m por encima de lo previsto en Puerto Belgrano para avisar
+
+
+def bucle_marea():
+    import marea as m
+    fuente = m.Marea()
+    while True:
+        try:
+            marea_estado["datos"], marea_estado["error"] = fuente.resumen(), None
+        except Exception as e:
+            marea_estado["error"] = f"{datetime.now():%d/%m %H:%M} {e}"
+            print("marea error:", e, flush=True)
+        time.sleep(900)   # el mareografo publica una vez por hora
 
 # Lluvia en la cuenca del Napostá: la lluvia en las sierras llega a la ciudad
 # horas despues. Coordenadas aproximadas, elegidas a mano.
@@ -226,7 +240,8 @@ def resumen_general():
         })
     return {
         "camaras": camaras, "clima": clima["datos"], "clima_error": clima["error"],
-        "riesgo": riesgo(camaras, clima["datos"]),
+        "marea": marea_estado["datos"], "marea_error": marea_estado["error"],
+        "riesgo": riesgo(camaras, clima["datos"], marea_estado["datos"]),
         "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
         "midiendo": situacion["midiendo"] and monitor.CAMARAS[situacion["midiendo"]]["nombre"],
     }
@@ -235,7 +250,7 @@ def resumen_general():
 ORDEN_ESTADO = {"normal": 0, "SUBIENDO": 1, "ALTO": 2, "CRITICO": 3}
 
 
-def riesgo(camaras, k):
+def riesgo(camaras, k, mar=None):
     """Semaforo general: el peor canal, y 'atencion' por lluvia aunque el agua no haya subido.
 
     Devuelve nivel (0 normal, 1 atencion, 2 alerta, 3 critico) y los motivos en texto.
@@ -254,6 +269,23 @@ def riesgo(camaras, k):
             nivel = max(nivel, 1); motivos.append(f"{c['nombre']}: subiendo ({a['nivel']:.0f} %)")
         if t and t.get("etiqueta") == "sube rápido":
             nivel = max(nivel, 2); motivos.append(f"{c['nombre']}: sube rápido ({t['v']:+.0f} %/h)")
+    lluvia_fuerte = False
+    if k:
+        lluvia_fuerte = k["prevista_6h"] >= 10 or k["lluvia_6h"] >= 10 or max(
+            (h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= 5
+    if mar:
+        b = mar.get("belgrano") or {}
+        reciente = b.get("t") and datetime.now() - datetime.strptime(b["t"], "%Y-%m-%d %H:%M") < timedelta(hours=3)
+        if reciente and b.get("diferencia") is not None and b["diferencia"] >= SOBREELEVACION:
+            nivel = max(nivel, 1)
+            motivos.append(f"Marea {b['diferencia']:+.2f} m por encima de lo previsto (Puerto Belgrano)".replace(".", ","))
+        p = mar.get("proxima_pleamar")
+        if lluvia_fuerte and p:
+            horas = (datetime.strptime(p["t"], "%Y-%m-%d %H:%M") - datetime.now()).total_seconds() / 3600
+            if 0 <= horas <= 6:
+                nivel = max(nivel, 1)
+                motivos.append(f"Lluvia fuerte con pleamar a las {p['t'][11:]} ({p['h']:.2f} m)".replace(".", ",")
+                               + ": los canales desaguan peor")
     if k:
         alta = next((p for p in k.get("cuenca", []) if p["nombre"].startswith("Cuenca alta")), None)
         if k["prevista_6h"] >= 10 or max((h["mm"] for h in k["horas"] if h["t"][:13] > k["hora"][:13]), default=0) >= 5:
@@ -327,5 +359,6 @@ if __name__ == "__main__":
         monitor.Rutas(cam).crear()
     threading.Thread(target=bucle, daemon=True).start()
     threading.Thread(target=bucle_clima, daemon=True).start()
+    threading.Thread(target=bucle_marea, daemon=True).start()
     print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {INTERVALO:g} min", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PUERTO), Manejador).serve_forever()

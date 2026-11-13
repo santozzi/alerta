@@ -16,6 +16,7 @@
             --hormigon: #56616b; --agua: #3d97e8; --agua2: #2b7fd0; }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--fondo); color: var(--texto);
          font: 16px/1.45 system-ui, "Segoe UI", sans-serif; }
   main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 40px; }
@@ -136,6 +137,15 @@
       <span><i style="background:#ff3b30"></i>agua nueva (última medición)</span>
     </div>
     <section class="camaras" id="tarjetas"></section>
+    <section class="panel" style="margin-bottom:16px">
+      <h2>Marea en el estuario</h2>
+      <div class="clima" id="g-marea"><p class="detalle">Cargando marea…</p></div>
+      <canvas id="g-curva-marea" style="height:150px;margin-top:12px"></canvas>
+      <p class="detalle fuente">Predicción del Servicio de Hidrografía Naval para Puerto Ingeniero White y altura medida cada hora en el mareógrafo de Puerto Belgrano.
+        Con marea alta los canales desaguan peor. Si la marea medida supera a la prevista (por ejemplo, con viento del sur o sudeste), el estuario está más lleno de lo normal.
+        Las alturas son sobre el plano de reducción de cada puerto: no se comparan entre puertos.</p>
+    </section>
+
     <section class="panel">
       <h2>Clima en Bahía Blanca</h2>
       <div class="clima" id="g-clima"></div>
@@ -421,6 +431,78 @@ function pintarGeneral() {
     mini(c);
   });
   pintarClima(g, ['g-clima', 'g-cuenca', null]);
+  pintarMarea();
+}
+
+const metros = v => v == null ? '–' : v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m';
+const horaDe = s => s.slice(11, 16);
+
+function pintarMarea() {
+  const m = general.marea, caja = document.getElementById('g-marea');
+  if (!m) {
+    caja.innerHTML = `<p class="detalle">${general.marea_error ? 'No se pudo traer la marea: ' + general.marea_error : 'Cargando marea…'}</p>`;
+    return;
+  }
+  const dato = (valor, titulo, nota = '', estilo = '') =>
+    `<div class="dato"${estilo ? ` style="${estilo}"` : ''}><span>${titulo}</span><b>${valor}</b>${nota ? `<small>${nota}</small>` : ''}</div>`;
+  const p = m.proxima_pleamar, b = m.belgrano || {};
+  const sig = m.proximos.find(e => e.tipo !== (p && p.tipo)) ;
+  let html =
+    dato(metros(m.altura), 'Ahora en Ing. White', m.tendencia ? (m.tendencia === 'sube' ? '↑ subiendo' : '↓ bajando') + ' · previsto' : 'previsto') +
+    dato(p ? horaDe(p.t) : '–', 'Próxima pleamar', p ? metros(p.h) + (p.t.slice(0, 10) !== m.proximos[0].t.slice(0, 10) ? ' · mañana' : '') : '');
+  const baj = m.proximos.find(e => e.tipo === 'bajamar');
+  if (baj) html += dato(horaDe(baj.t), 'Próxima bajamar', metros(baj.h));
+  if (b.error) {
+    html += dato('–', 'Medida en Pto. Belgrano', 'el mareógrafo no respondió');
+  } else if (b.h != null) {
+    html += dato(metros(b.h), 'Medida en Pto. Belgrano', `a las ${horaDe(b.t)} · prevista ${metros(b.prevista)}`);
+    const alta = b.diferencia != null && b.diferencia >= 0.5;
+    html += dato(b.diferencia == null ? '–' : (b.diferencia > 0 ? '+' : '') + metros(b.diferencia), 'Diferencia con lo previsto',
+      alta ? 'estuario más lleno de lo normal' : 'promedio de las últimas 3 h',
+      alta ? `border-color:${css('--subiendo')}` : '');
+  }
+  caja.innerHTML = html;
+  curvaMarea();
+}
+
+function curvaMarea() {
+  const m = general && general.marea, c = document.getElementById('g-curva-marea');
+  if (!m || !m.curva.length || !c.clientWidth) return;
+  const r = devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  c.width = W * r; c.height = H * r;
+  const g = c.getContext('2d'); g.scale(r, r);
+  const ml = 40, mr = 10, mt = 16, mb = 22, w = W - ml - mr, h = H - mt - mb;
+  const ts = m.curva.map(p => new Date(p.t.replace(' ', 'T')).getTime());
+  const ini = ts[0], fin = ts[ts.length - 1];
+  const tope = Math.max(5, ...m.curva.map(p => p.h));
+  const x = ms => ml + (ms - ini) / (fin - ini) * w, y = v => mt + h - v / tope * h;
+  g.font = '11px system-ui'; g.textBaseline = 'middle';
+  [0, 2, 4].forEach(v => {
+    g.strokeStyle = css('--borde'); g.beginPath(); g.moveTo(ml, y(v)); g.lineTo(ml + w, y(v)); g.stroke();
+    g.fillStyle = css('--suave'); g.textAlign = 'right'; g.fillText(v + ' m', ml - 6, y(v));
+  });
+  // curva prevista
+  g.beginPath(); m.curva.forEach((p, i) => { const X = x(ts[i]), Y = y(p.h); i ? g.lineTo(X, Y) : g.moveTo(X, Y); });
+  g.lineTo(x(fin), y(0)); g.lineTo(x(ini), y(0)); g.closePath();
+  g.globalAlpha = .15; g.fillStyle = css('--agua'); g.fill(); g.globalAlpha = 1;
+  g.beginPath(); m.curva.forEach((p, i) => { const X = x(ts[i]), Y = y(p.h); i ? g.lineTo(X, Y) : g.moveTo(X, Y); });
+  g.strokeStyle = css('--agua'); g.lineWidth = 2; g.stroke();
+  // pleamares y bajamares
+  g.textAlign = 'center'; g.fillStyle = css('--texto');
+  m.proximos.forEach(e => {
+    const ms = new Date(e.t.replace(' ', 'T')).getTime();
+    if (ms < ini || ms > fin) return;
+    g.beginPath(); g.arc(x(ms), y(e.h), 3, 0, 7); g.fill();
+    g.fillText(`${e.tipo === 'pleamar' ? 'pleamar' : 'bajamar'} ${horaDe(e.t)}`, Math.min(Math.max(x(ms), ml + 40), ml + w - 40),
+               e.tipo === 'pleamar' ? y(e.h) - 9 : Math.min(y(e.h) + 11, mt + h + 2));
+  });
+  // ahora
+  const ahora = Date.now();
+  if (ahora > ini && ahora < fin) {
+    g.strokeStyle = css('--critico'); g.setLineDash([4, 3]); g.beginPath(); g.moveTo(x(ahora), mt); g.lineTo(x(ahora), mt + h); g.stroke();
+    g.setLineDash([]); g.fillStyle = css('--critico'); g.fillText('ahora', x(ahora), H - 8);
+  }
+  g.fillStyle = css('--suave'); g.textAlign = 'left'; g.fillText('−6 h', ml, H - 8); g.textAlign = 'right'; g.fillText('+18 h', ml + w, H - 8);
 }
 
 function pintar() {
@@ -611,7 +693,7 @@ actualizar();
 setInterval(actualizar, 20000);
 setInterval(cuenta, 1000);
 addEventListener('resize', () => {
-  if (cam === 'general') { if (general) general.camaras.forEach(mini); }
+  if (cam === 'general') { if (general) { general.camaras.forEach(mini); curvaMarea(); } }
   else if (datos) grafico();
 });
 addEventListener('hashchange', () => {
