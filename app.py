@@ -129,12 +129,61 @@ def resumen(cam):
     return rutas, filas, actual
 
 
+def _pendiente(puntos):
+    """Pendiente por minimos cuadrados en %/hora; puntos = [(minutos, nivel)]."""
+    if len(puntos) < 3 or puntos[-1][0] - puntos[0][0] < 9:
+        return None
+    t = [p[0] for p in puntos]; n = [p[1] for p in puntos]
+    mt, mn = sum(t) / len(t), sum(n) / len(n)
+    den = sum((x - mt) ** 2 for x in t)
+    return 60.0 * sum((x - mt) * (y - mn) for x, y in zip(t, n)) / den if den else None
+
+
+def tendencia(filas):
+    """Velocidad de subida del nivel en %/hora en los ultimos 30 y 60 minutos."""
+    if not filas:
+        return None
+    pts = []
+    for r in filas:
+        try:
+            pts.append((datetime.strptime(r["fecha_hora"], "%Y-%m-%d %H:%M"), float(r["nivel_pct"])))
+        except (KeyError, ValueError):
+            pass
+    if not pts:
+        return None
+    fin = pts[-1][0]
+    def ventana(minutos):
+        return [((t - fin).total_seconds() / 60, n) for t, n in pts if (fin - t).total_seconds() <= minutos * 60]
+    v30, v60 = _pendiente(ventana(30)), _pendiente(ventana(60))
+    v = v30 if v30 is not None else v60
+    if v is None:
+        etiqueta = "sin datos"
+    elif v >= 20:
+        etiqueta = "sube rápido"
+    elif v >= 5:
+        etiqueta = "sube"
+    elif v <= -5:
+        etiqueta = "baja"
+    else:
+        etiqueta = "estable"
+    nivel = pts[-1][1]
+    # Minutos hasta el proximo umbral a este ritmo (solo si sube).
+    eta = None
+    if v is not None and v >= 5:
+        prox = next((u for u in (15, 40, 70, 100) if u > nivel), None)
+        if prox is not None:
+            eta = {"umbral": prox, "minutos": round((prox - nivel) / v * 60)}
+    return {"v30": v30, "v60": v60, "v": v, "etiqueta": etiqueta, "eta": eta}
+
+
 def lista_camaras():
     out = []
     for cam in CAMARAS:
-        _, _, actual = resumen(cam)
+        _, filas, actual = resumen(cam)
+        tend = tendencia(filas)
         out.append({"id": cam, "nombre": monitor.CAMARAS[cam]["nombre"],
-                    "nivel": actual and actual["nivel"], "estado": actual and actual["estado"]})
+                    "nivel": actual and actual["nivel"], "estado": actual and actual["estado"],
+                    "tendencia": tend and tend["etiqueta"]})
     return out
 
 
@@ -143,6 +192,7 @@ def estado_camara(cam):
     return {
         "id": cam, "nombre": monitor.CAMARAS[cam]["nombre"], "video": monitor.CAMARAS[cam]["video"],
         "actual": actual,
+        "tendencia": tendencia(filas),
         "historial": [{"t": r["fecha_hora"], "nivel": float(r["nivel_pct"]), "estado": r["estado"]} for r in filas],
         "camaras": lista_camaras(),
         "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),

@@ -50,6 +50,12 @@
   .dato.llueve b { color: var(--agua); }
   .flecha { display: inline-block; transition: transform .5s; }
   .fuente { font-size: .78rem; margin-top: 10px; }
+  .ritmo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 6px 0 8px;
+           padding: 8px 12px; border-radius: 10px; border: 1px solid var(--borde); }
+  .ritmo b { font-size: 1.25rem; font-variant-numeric: tabular-nums; color: var(--color-ritmo, var(--texto)); }
+  .ritmo span { color: var(--color-ritmo, var(--suave)); font-weight: 600; }
+  .ritmo small { color: var(--suave); flex-basis: 100%; font-size: .82rem; }
+  .solapa .flecha-t { font-weight: 700; }
   .subtitulo { font-size: .95rem; margin: 18px 0 2px; }
   .tabla-cont { overflow-x: auto; }
   .cuenca { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 8px; }
@@ -89,6 +95,7 @@
         <div class="numero" id="numero">–</div>
         <div class="etiqueta" id="etiqueta">sin datos</div>
       </div>
+      <div class="ritmo" id="ritmo"></div>
       <p class="detalle">Subida del agua sobre el nivel de base: 0&nbsp;% es el hilo de agua que corre siempre por el medio del canal; 100&nbsp;% es el canal cubierto de borde a borde.</p>
       <p class="detalle" id="medido">Esperando la primera medición…</p>
       <p class="detalle" id="proxima"></p>
@@ -148,6 +155,35 @@
 const COLORES = { normal: '--normal', SUBIENDO: '--subiendo', ALTO: '--alto', CRITICO: '--critico' };
 const NOMBRES = { normal: 'Normal', SUBIENDO: 'Subiendo', ALTO: 'Alto', CRITICO: 'Crítico' };
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const TENDENCIAS = {
+  'sube rápido': { flecha: '⇈', color: '--critico' },
+  'sube': { flecha: '↑', color: '--subiendo' },
+  'estable': { flecha: '', color: '--normal' },
+  'baja': { flecha: '↓', color: '--normal' },
+  'sin datos': { flecha: '', color: '--suave' },
+};
+const UMBRAL_NOMBRE = { 15: 'subiendo', 40: 'alto', 70: 'crítico', 100: 'borde a borde' };
+
+function pintarRitmo() {
+  const caja = document.getElementById('ritmo'), t = datos.tendencia;
+  if (!t || t.v == null) {
+    caja.innerHTML = '<span>Velocidad de subida</span><small>Hacen falta al menos 3 mediciones en 10 minutos para calcularla.</small>';
+    caja.style.removeProperty('--color-ritmo');
+    return;
+  }
+  const info = TENDENCIAS[t.etiqueta] || TENDENCIAS['sin datos'];
+  const v = Math.round(t.v * 10) / 10, signo = v > 0 ? '+' : '';
+  const ventana = t.v30 != null ? 'últimos 30 min' : 'última hora';
+  let nota = `Cambio del nivel en la ${ventana === 'última hora' ? 'última hora' : 'última media hora'}, en puntos por hora.`;
+  if (t.eta) {
+    const m = t.eta.minutos;
+    const cuando = m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
+    nota = `A este ritmo llega a ${t.eta.umbral} % (${UMBRAL_NOMBRE[t.eta.umbral]}) en unos ${cuando}.`;
+  }
+  caja.style.setProperty('--color-ritmo', css(info.color));
+  caja.innerHTML = `<b>${signo}${v.toLocaleString('es-AR')} %/h</b><span>${info.flecha} ${t.etiqueta}</span><small>${nota}</small>`;
+}
+
 let datos = null, ultimaFoto = '', videoActual = '';
 let cam = decodeURIComponent(location.hash.slice(1)) || '';
 
@@ -155,7 +191,9 @@ function solapas(lista) {
   const nav = document.getElementById('solapas');
   nav.innerHTML = lista.map(c => {
     const col = c.estado ? css(COLORES[c.estado] || '--suave') : css('--suave');
-    const niv = c.nivel == null ? '–' : Math.round(c.nivel) + '%';
+    const t = TENDENCIAS[c.tendencia];
+    const niv = (c.nivel == null ? '–' : Math.round(c.nivel) + '%') +
+      (t && t.flecha ? ` <span class="flecha-t" style="color:${css(t.color)}" title="${c.tendencia}">${t.flecha}</span>` : '');
     return `<button class="solapa" role="tab" aria-selected="${c.id === datos.id}" data-cam="${c.id}">
       <span class="punto" style="background:${col}"></span>${c.nombre}<small>${niv}</small></button>`;
   }).join('');
@@ -194,6 +232,7 @@ function pintar() {
       `https://www.youtube-nocookie.com/embed/${datos.video}?autoplay=1&mute=1&playsinline=1`;
   }
   pintarClima();
+  pintarRitmo();
   const err = document.getElementById('error');
   err.hidden = !datos.error;
   err.textContent = datos.error ? 'Última captura falló: ' + datos.error : '';
