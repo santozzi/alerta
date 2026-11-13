@@ -2,3 +2,6 @@
 datos/
 __pycache__/
 *.pyc
+
+# Claves privadas (token de Telegram, etc.)
+.env

@@ -7,7 +7,7 @@ RUN apt-get update \
 RUN pip install --no-cache-dir opencv-python-headless numpy yt-dlp
 
 WORKDIR /app
-COPY monitor.py app.py marea.py noticias.py ./
+COPY monitor.py app.py marea.py noticias.py smn.py ./
 COPY web ./web
 
 ENV PYTHONUNBUFFERED=1

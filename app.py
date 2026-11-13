@@ -35,6 +35,22 @@ SOBREELEVACION = 0.5   # m por encima de lo previsto en Puerto Belgrano para avi
 
 
 noticias_estado = {"notas": [], "error": None, "t": None}
+smn_estado = {"alertas": None, "completo": False, "error": None, "t": None}
+
+
+def bucle_smn():
+    import smn
+    smn.ARCHIVO_CACHE = monitor.DATOS / "smn_cache.json"
+    while True:
+        try:
+            r = smn.vigentes()
+            smn_estado.update(alertas=r["alertas"], completo=r["completo"], error=None,
+                              t=datetime.now().strftime("%H:%M"))
+        except Exception as e:
+            smn_estado["error"] = f"{datetime.now():%d/%m %H:%M} {e}"
+            print("smn error:", e, flush=True)
+        # Si todavia faltan alertas por leer (el SMN limita), vuelve antes.
+        time.sleep(900 if smn_estado["completo"] else 120)
 
 
 def bucle_noticias():
@@ -267,6 +283,7 @@ def resumen_general():
     return {
         "camaras": camaras, "clima": clima["datos"], "clima_error": clima["error"],
         "marea": marea_estado["datos"], "marea_error": marea_estado["error"],
+        "smn": smn_estado,
         "riesgo": riesgo(camaras, clima["datos"], marea_estado["datos"]),
         "intervalo_min": INTERVALO, "proxima": situacion["proxima"], "ahora": time.time(),
         "midiendo": situacion["midiendo"] and monitor.CAMARAS[situacion["midiendo"]]["nombre"],
@@ -295,15 +312,32 @@ def riesgo(camaras, k, mar=None):
             nivel = max(nivel, 1); motivos.append(f"{c['nombre']}: subiendo ({a['nivel']:.0f} %)")
         if t and t.get("etiqueta") == "sube rápido":
             nivel = max(nivel, 2); motivos.append(f"{c['nombre']}: sube rápido ({t['v']:+.0f} %/h)")
-    # Alertas del SMN que informan los medios en las ultimas 12 h (no hay API publica del SMN).
-    hace12 = (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M")
-    for color, minimo in (("roja", 2), ("naranja", 1)):
-        nota = next((n for n in noticias_estado["notas"]
-                     if n["fecha"] >= hace12 and f"alerta {color}" in n["titulo"].lower()), None)
-        if nota:
-            nivel = max(nivel, minimo)
-            motivos.append(f"Medios informan alerta {color} por tormentas ({nota['medio']}, {nota['fecha'][11:]})")
-            break
+    # Alertas oficiales del SMN (CAP). Amarilla vigente = atencion; naranja o roja vigente = alerta.
+    # Si todavia no se pudieron leer, se usan como respaldo los titulos de las noticias.
+    # Mientras la lectura este incompleta (el SMN limita), no se puede afirmar que no hay alertas.
+    alertas = smn_estado["alertas"] if smn_estado["completo"] else None
+    if alertas is not None:
+        for a in alertas:
+            if not a["vigente"]:
+                continue
+            nivel = max(nivel, 1 if a["color"] == "amarilla" else 2)
+            hasta = a["hasta"][11:16] if a["hasta"] else "?"
+            motivos.append(f"SMN: alerta {a['color']} por {a['evento'].lower()} en {', '.join(a['lugares'])} (hasta las {hasta})")
+        proximas = [a for a in alertas if not a["vigente"] and a["color"] != "amarilla"]
+        if proximas:
+            a = proximas[0]
+            nivel = max(nivel, 1)
+            motivos.append(f"SMN: alerta {a['color']} por {a['evento'].lower()} desde las {a['desde'][11:16]}"
+                           f"{' del ' + a['desde'][8:10] + '/' + a['desde'][5:7] if a['desde'][:10] != datetime.now().strftime('%Y-%m-%d') else ''}")
+    else:
+        hace12 = (datetime.now() - timedelta(hours=12)).strftime("%Y-%m-%d %H:%M")
+        for color, minimo in (("roja", 2), ("naranja", 1)):
+            nota = next((n for n in noticias_estado["notas"]
+                         if n["fecha"] >= hace12 and f"alerta {color}" in n["titulo"].lower()), None)
+            if nota:
+                nivel = max(nivel, minimo)
+                motivos.append(f"Medios informan alerta {color} por tormentas ({nota['medio']}, {nota['fecha'][11:]})")
+                break
     lluvia_fuerte = False
     if k:
         lluvia_fuerte = k["prevista_6h"] >= 10 or k["lluvia_6h"] >= 10 or max(
@@ -365,6 +399,8 @@ class Manejador(BaseHTTPRequestHandler):
             self.send_header("Location", (PREFIJO or "") + "/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+        elif ruta == "/mapa.json":
+            self._enviar((WEB / "mapa.json").read_bytes(), "application/json", cache="public, max-age=3600")
         elif ruta in ("/logo.png", "/favicon.png", "/logo-completo.png"):
             self._enviar((WEB / ruta[1:]).read_bytes(), "image/png", cache="public, max-age=86400")
         elif ruta == "/api/noticias":
@@ -400,5 +436,6 @@ if __name__ == "__main__":
     threading.Thread(target=bucle_clima, daemon=True).start()
     threading.Thread(target=bucle_marea, daemon=True).start()
     threading.Thread(target=bucle_noticias, daemon=True).start()
+    threading.Thread(target=bucle_smn, daemon=True).start()
     print(f"Web en el puerto {PUERTO}, camaras {', '.join(CAMARAS)}, cada {INTERVALO:g} min", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PUERTO), Manejador).serve_forever()

@@ -6,6 +6,8 @@
 <title>Bahía Alerta</title>
 <meta name="description" content="Bahía Alerta: nivel de los canales de Bahía Blanca en vivo, lluvia, marea y noticias.">
 <link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" defer></script>
 <link rel="apple-touch-icon" href="logo.png">
 <meta property="og:title" content="Bahía Alerta">
 <meta property="og:description" content="Nivel de los canales de Bahía Blanca en vivo, lluvia, marea y noticias.">
@@ -150,6 +152,25 @@
   .pie-nota { grid-column: 1 / -1; margin: 0; color: var(--suave); font-size: .8rem; }
   .pie-aviso { border-left: 3px solid var(--subiendo); padding-left: 10px; }
   .pie-aviso b { color: var(--texto); }
+  .mapa { height: 460px; border-radius: 8px; overflow: hidden; background: var(--borde); }
+  /* Las reglas generales de img y svg de la pagina rompen las de Leaflet */
+  .mapa svg { width: auto; height: auto; display: inline; max-width: none; }
+  .mapa img { width: auto; max-width: none; aspect-ratio: auto; border-radius: 0; background: none; display: inline; }
+  @media (max-width: 640px) { .mapa { height: 340px; } }
+  @media (prefers-color-scheme: dark) {
+    .mapa .capa-calles { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+  }
+  .mapa .leaflet-popup-content { font: 13px/1.4 system-ui, "Segoe UI", sans-serif; }
+  .etiqueta-mapa { background: var(--panel) !important; color: var(--texto) !important; border: 1px solid var(--borde) !important;
+                   font-size: 11px !important; padding: 2px 6px !important; box-shadow: none !important; }
+  .etiqueta-mapa::before { display: none; }
+  .alertas-smn { margin-bottom: 16px; }
+  .alerta-smn { border-left: 6px solid var(--color); padding: 8px 12px; margin: 8px 0; border-radius: 6px;
+                background: color-mix(in srgb, var(--color) 10%, transparent); }
+  .alerta-smn b { font-size: 1.05rem; }
+  .alerta-smn .cuando { color: var(--suave); font-size: .85rem; display: block; margin: 2px 0 4px; }
+  .alerta-smn details { font-size: .88rem; color: var(--suave); }
+  .alerta-smn summary { cursor: pointer; color: var(--agua); }
   .controles { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin: -4px 0 10px;
                color: var(--suave); font-size: .85rem; }
   .controles label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
@@ -185,12 +206,26 @@
       <div><b id="riesgo-titulo">Cargando…</b><ul id="riesgo-motivos"></ul></div>
       <div class="meta" id="riesgo-meta"></div>
     </section>
+    <section class="panel alertas-smn" id="alertas-smn" hidden>
+      <h2>Alertas del Servicio Meteorológico Nacional</h2>
+      <div id="lista-smn"></div>
+      <p class="detalle fuente" id="pie-smn"></p>
+    </section>
     <div class="controles">
       <label><input type="checkbox" id="ver-lineas" checked> Mostrar las líneas de medición sobre el video</label>
       <span><i style="background:#2ecc40"></i>igual a la base</span>
       <span><i style="background:#ff3b30"></i>agua nueva (última medición)</span>
     </div>
     <section class="camaras" id="tarjetas"></section>
+    <section class="panel" style="margin-bottom:16px">
+      <h2>Mapa</h2>
+      <div id="mapa" class="mapa" role="region" aria-label="Mapa de cámaras, cauces y alertas"></div>
+      <p class="detalle fuente">Cámaras (color según su estado), arroyo Napostá y canal Maldonado, puntos de lluvia de la cuenca, mareógrafos y,
+        si hay, las zonas de alerta del SMN. Ubicaciones y cauces de OpenStreetMap; la de Parque de Mayo es aproximada.
+        Con el botón de capas (arriba a la derecha) se cambia a imagen satelital —un mosaico que se renueva cada varios meses, no en vivo— o se suman
+        las nubes del satélite GOES-Este: una imagen nueva cada 10 minutos, que llega con unos 20 a 40 minutos de demora y se ve en baja resolución (unos 2 km).
+        En el infrarrojo, las nubes de tormenta (topes fríos) se ven más blancas.</p>
+    </section>
     <section class="panel" style="margin-bottom:16px">
       <h2>Marea en el estuario</h2>
       <div class="clima" id="g-marea"><p class="detalle">Cargando marea…</p></div>
@@ -520,6 +555,113 @@ function pintarGeneral() {
   });
   pintarClima(g, ['g-clima', 'g-cuenca', null]);
   pintarMarea();
+  pintarSMN();
+  pintarMapa();
+}
+
+const COLOR_SMN = { amarilla: '#e8c200', naranja: '#f08a00', roja: '#d22f2f' };
+const fechaCorta = s => {
+  if (!s) return '?';
+  const hoy = new Date(), d = new Date(s);
+  const dia = d.toDateString() === hoy.toDateString() ? 'hoy'
+    : d.toDateString() === new Date(hoy.getTime() + 864e5).toDateString() ? 'mañana'
+    : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  return `${dia} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+function pintarSMN() {
+  const s = general.smn || {}, caja = document.getElementById('alertas-smn');
+  const lista = s.alertas || [];
+  caja.hidden = !lista.length && !s.error;
+  document.getElementById('lista-smn').innerHTML = lista.map(a => `
+    <div class="alerta-smn" style="--color:${COLOR_SMN[a.color]}">
+      <b>${a.vigente ? 'Vigente' : 'Próxima'}: alerta ${esc(a.color)} por ${esc(a.evento.toLowerCase())}${a.corto_plazo ? ' (aviso a muy corto plazo)' : ''}</b>
+      <span class="cuando">${esc(a.lugares.join(' y '))} · desde ${fechaCorta(a.desde)} hasta ${fechaCorta(a.hasta)}</span>
+      <details><summary>Qué dice el SMN</summary><p>${esc(a.descripcion)}</p>${a.instrucciones ? `<p><b>Qué hacer:</b> ${esc(a.instrucciones)}</p>` : ''}</details>
+    </div>`).join('');
+  document.getElementById('pie-smn').innerHTML =
+    `Fuente: <a href="https://www.smn.gob.ar/alertas" target="_blank" rel="noopener">alertas oficiales del SMN</a> (formato CAP), revisadas cada 15 min` +
+    (s.t ? `; última revisión ${s.t}` : '') + (s.completo === false ? ' (todavía leyendo alertas: el SMN limita los pedidos)' : '') +
+    (s.error ? `. Último intento falló: ${esc(s.error)}` : '.');
+}
+
+let mapa = null, capasMapa = null, datosMapa = null;
+const capasSat = {};
+async function pintarMapa() {
+  if (!window.L) return;   // Leaflet todavia no cargo; se reintenta en la proxima actualizacion
+  const cont = document.getElementById('mapa');
+  if (!mapa) {
+    mapa = L.map(cont, { scrollWheelZoom: false }).setView([-38.705, -62.28], 13);
+    const calles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, className: 'capa-calles',
+      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(mapa);
+    // Imagen satelital de fondo (mosaico de Esri: no es en vivo, se renueva cada varios meses)
+    const satelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18, attribution: 'Imagen © Esri, Maxar, Earthstar Geographics' });
+    // Nubes casi en vivo: satelite GOES-Este (NASA GIBS), una imagen cada 10 minutos
+    const gibs = (capa, matriz, max) => L.tileLayer(
+      `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/${capa}/default/default/${matriz}/{z}/{y}/{x}.png`,
+      { maxNativeZoom: max, maxZoom: 18, opacity: .65, attribution: 'Nubes: NASA GIBS / NOAA GOES-Este' });
+    capasSat.color = gibs('GOES-East_ABI_GeoColor', 'GoogleMapsCompatible_Level7', 7);
+    capasSat.ir = gibs('GOES-East_ABI_Band13_Clean_Infrared', 'GoogleMapsCompatible_Level6', 6);
+    L.control.layers({ 'Calles': calles, 'Satélite': satelite },
+      { 'Nubes ahora (GOES, color)': capasSat.color, 'Nubes de tormenta (GOES, infrarrojo)': capasSat.ir },
+      { position: 'topright', collapsed: true }).addTo(mapa);
+    // Las capas del GOES se recargan cada 10 min para traer la imagen nueva
+    setInterval(() => Object.values(capasSat).forEach(c => mapa.hasLayer(c) && c.redraw()), 10 * 60 * 1000);
+    capasMapa = L.layerGroup().addTo(mapa);
+    try { datosMapa = await (await fetch('mapa.json')).json(); } catch (e) { datosMapa = null; }
+    const verZona = L.control({ position: 'topright' });
+    verZona.onAdd = () => {
+      const d = L.DomUtil.create('div', 'leaflet-bar');
+      d.innerHTML = '<a href="#" title="Ver la ciudad" style="width:auto;padding:0 8px">Ciudad</a><a href="#" title="Ver la cuenca hasta las sierras" style="width:auto;padding:0 8px">Cuenca</a>';
+      const [c, s] = d.querySelectorAll('a');
+      c.onclick = e => { e.preventDefault(); mapa.setView([-38.705, -62.28], 13); };
+      s.onclick = e => { e.preventDefault(); mapa.fitBounds([[-38.92, -62.36], [-38.0, -61.95]]); };
+      L.DomEvent.disableClickPropagation(d);
+      return d;
+    };
+    verZona.addTo(mapa);
+  }
+  if (!datosMapa) return;
+  capasMapa.clearLayers();
+  const g = general;
+  // zonas de alerta del SMN (debajo de todo)
+  ((g.smn && g.smn.alertas) || []).filter(a => a.vigente).forEach(a => (a.poligonos || []).forEach(p =>
+    L.polygon(p, { color: COLOR_SMN[a.color], weight: 1.5, fillOpacity: .12, interactive: true })
+      .bindPopup(`<b>Alerta ${esc(a.color)} del SMN</b><br>${esc(a.evento)} hasta ${fechaCorta(a.hasta)}`).addTo(capasMapa)));
+  // cauces
+  datosMapa.cauces.forEach(c => {
+    const naposta = c.nombre.includes('Napost');
+    c.lineas.forEach(l => L.polyline(l, { color: naposta ? '#2f86d6' : '#13a7d8', weight: naposta ? 3 : 4,
+      dashArray: naposta ? null : '6 4', opacity: .9 }).bindTooltip(c.nombre === 'Arroyo Maldonado' ? 'Canal Maldonado' : c.nombre, { sticky: true }).addTo(capasMapa));
+  });
+  // puntos de lluvia y marea
+  const cuenca = (g.clima && g.clima.cuenca) || [];
+  datosMapa.puntos.forEach(p => {
+    let texto = p.nombre;
+    if (p.tipo === 'lluvia') {
+      const c = cuenca.find(x => x.nombre.startsWith(p.nombre.split(' (')[0]));
+      if (c) texto += `<br>Lluvia 24 h: ${mm(c.lluvia_24h)} · prevista 24 h: ${mm(c.prevista_24h)}`;
+    } else if (p.nombre.startsWith('Mareógrafo') && g.marea && g.marea.belgrano && g.marea.belgrano.h != null) {
+      const b = g.marea.belgrano;
+      texto += `<br>Medida ${metros(b.h)} a las ${horaDe(b.t)} (prevista ${metros(b.prevista)})`;
+    } else if (p.nombre.startsWith('Puerto Ingeniero') && g.marea) {
+      texto += `<br>Ahora ${metros(g.marea.altura)}, próxima pleamar ${g.marea.proxima_pleamar ? horaDe(g.marea.proxima_pleamar.t) : '–'}`;
+    }
+    L.circleMarker(p.pos, { radius: 6, color: p.tipo === 'lluvia' ? '#8a6fd1' : '#1e9e5a', fillOpacity: .8, weight: 2 })
+      .bindPopup(texto).addTo(capasMapa);
+  });
+  // camaras, con el color de su estado
+  g.camaras.forEach(c => {
+    const m = datosMapa.camaras[c.id];
+    if (!m) return;
+    const a = c.actual, col = a ? css(COLORES[a.estado] || '--suave') : css('--suave');
+    L.circleMarker(m.pos, { radius: 10, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 })
+      .bindTooltip(`${c.nombre}: ${a ? Math.round(a.nivel) + '%' : '–'}`, { permanent: true, direction: 'right', offset: [10, 0], className: 'etiqueta-mapa' })
+      .bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(m.nota)}<br>Nivel: ${a ? Math.round(a.nivel) + '% · ' + (NOMBRES[a.estado] || a.estado) : 'sin datos'}` +
+                 `<br><a href="#${encodeURIComponent(c.id)}">Ver detalle →</a>`)
+      .addTo(capasMapa);
+  });
 }
 
 const metros = v => v == null ? '–' : v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m';
