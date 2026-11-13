@@ -61,10 +61,12 @@ CAMARAS = {
     "parque-de-mayo": {
         "nombre": "Parque de Mayo",
         "video": "HCNs0AIW1mU",
-        "cortes": [((780, 470), (1450, 560)), ((620, 560), (1420, 680)),
-                   ((430, 680), (1370, 800)), ((250, 820), (1310, 920))],
+        # De borde a borde: el extremo izquierdo esta en el filo superior del muro y el
+        # derecho en el filo del talud, asi 100 % es el canal lleno hasta arriba de los dos lados.
+        "cortes": [((758, 438), (1450, 560)), ((578, 495), (1420, 680)),
+                   ((375, 588), (1370, 800)), ((197, 657), (1310, 920))],
         # incluye las plantas flotantes, que se mueven y no son una crecida
-        "agua": [(0.42, 0.93), (0.42, 0.85), (0.43, 0.82), (0.40, 0.75)],
+        "agua": [(0.45, 0.93), (0.47, 0.86), (0.47, 0.82), (0.50, 0.78)],
     },
     "casanova": {
         "nombre": "Casanova y Fuerte Argentino",
