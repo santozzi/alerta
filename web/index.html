@@ -345,8 +345,8 @@
 </footer>
 
 <script>
-const COLORES = { normal: '--normal', SUBIENDO: '--subiendo', ALTO: '--alto', CRITICO: '--critico' };
-const NOMBRES = { normal: 'Normal', SUBIENDO: 'Subiendo', ALTO: 'Alto', CRITICO: 'Crítico' };
+const COLORES = { normal: '--normal', SUBIENDO: '--subiendo', ALTO: '--alto', CRITICO: '--critico', NO_CONFIABLE: '--suave' };
+const NOMBRES = { normal: 'Normal', SUBIENDO: 'Subiendo', ALTO: 'Alto', CRITICO: 'Crítico', NO_CONFIABLE: 'Imagen no confiable' };
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const TENDENCIAS = {
   'sube rápido': { flecha: '⇈', color: '--critico' },
@@ -445,7 +445,7 @@ function tarjeta(c) {
   const nota = c.error ? `<small style="color:${css('--critico')}">Falló la captura</small>`
     : c.midiendo ? '<small>Capturando…</small>' : a && a.nota ? `<small>${a.nota}</small>` : '';
   return `<div class="nombre"><b>${c.nombre}</b><span class="ir">ver detalle →</span></div>
-      <div class="fila"><span class="g-nivel">${a ? Math.round(a.nivel) + '%' : '–'}</span>
+      <div class="fila"><span class="g-nivel">${a && a.estado !== 'NO_CONFIABLE' ? Math.round(a.nivel) + '%' : '–'}</span>
         <span class="g-etiqueta">${a ? NOMBRES[a.estado] || a.estado : 'sin datos'}</span></div>
       <div class="fila">${ritmo}</div>
       <canvas data-graf="${c.id}"></canvas>
@@ -657,7 +657,7 @@ async function pintarMapa() {
     if (!m) return;
     const a = c.actual, col = a ? css(COLORES[a.estado] || '--suave') : css('--suave');
     L.circleMarker(m.pos, { radius: 10, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 })
-      .bindTooltip(`${c.nombre}: ${a ? Math.round(a.nivel) + '%' : '–'}`, { permanent: true, direction: 'right', offset: [10, 0], className: 'etiqueta-mapa' })
+      .bindTooltip(`${c.nombre}: ${a && a.estado !== 'NO_CONFIABLE' ? Math.round(a.nivel) + '%' : '–'}`, { permanent: true, direction: 'right', offset: [10, 0], className: 'etiqueta-mapa' })
       .bindPopup(`<b>${esc(c.nombre)}</b><br>${esc(m.nota)}<br>Nivel: ${a ? Math.round(a.nivel) + '% · ' + (NOMBRES[a.estado] || a.estado) : 'sin datos'}` +
                  `<br><a href="#${encodeURIComponent(c.id)}">Ver detalle →</a>`)
       .addTo(capasMapa);
@@ -846,7 +846,7 @@ function pintar() {
     return;
   }
 
-  document.getElementById('numero').textContent = Math.round(a.nivel) + '%';
+  document.getElementById('numero').textContent = a.estado === 'NO_CONFIABLE' ? '–' : Math.round(a.nivel) + '%';
   const et = document.getElementById('etiqueta');
   et.textContent = NOMBRES[a.estado] || a.estado;
   et.style.setProperty('--color-estado', css(COLORES[a.estado] || '--suave'));

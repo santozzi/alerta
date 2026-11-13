@@ -32,7 +32,8 @@ API = "https://api.telegram.org/bot{token}/{metodo}"
 RIESGO = ["Todo normal", "Atención", "Alerta", "Crítico"]
 EMOJI_RIESGO = ["🟢", "🟡", "🟠", "🔴"]
 ESTADOS = {"normal": 0, "SUBIENDO": 1, "ALTO": 2, "CRITICO": 3}
-NOMBRE_ESTADO = {"normal": "Normal", "SUBIENDO": "Subiendo", "ALTO": "Alto", "CRITICO": "Crítico"}
+NOMBRE_ESTADO = {"normal": "Normal", "SUBIENDO": "Subiendo", "ALTO": "Alto", "CRITICO": "Crítico",
+                 "NO_CONFIABLE": "imagen no confiable"}
 EMOJI_SMN = {"amarilla": "🟨", "naranja": "🟧", "roja": "🟥"}
 ESPERA_REPETIR = 30 * 60   # s minimos antes de repetir un aviso del mismo tipo para lo mismo
 PIE_PUBLICO = ("\n\n<i>Bahía Alerta es experimental y depende de servicios externos. "

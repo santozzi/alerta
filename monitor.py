@@ -88,6 +88,10 @@ VAR_MIN = 12.0        # la referencia necesita algo de textura para opinar
 UMBRALES = [(70, "CRITICO"), (40, "ALTO"), (15, "SUBIENDO"), (0, "normal")]
 NIVEL_ALERTA = 15     # % a partir del cual avisa
 NIVEL_REF = 10        # por debajo de esto la captura renueva la referencia
+SIM_REF_MIN = 0.60    # menos parecida que esto a la referencia = imagen no confiable (obstruida o movida)
+SIM_NUEVA_REF = 0.85  # para guardarse como referencia, la captura tiene que parecerse asi a la anterior
+CONSIST_MIN = 0.80    # consistencia minima de los fotogramas de una captura para usarla como referencia
+RECALIBRAR_TRAS = 3   # capturas seguidas no confiables pero estables -> se renueva la referencia
 DIAS_CAPTURAS = 7
 
 
@@ -140,25 +144,47 @@ def url_stream(cam, forzar=False):
     return lineas[0]
 
 
-def capturar(cam, n=5):
-    """Mediana de n fotogramas (1 por segundo): quita ruido, autos y bichos."""
+def capturar(cam, n=5, cada=4):
+    """Mediana de n fotogramas, uno cada `cada` segundos (unos 20 s en total).
+
+    La mediana borra autos y personas que pasan. Devuelve (imagen, consistencia): la
+    consistencia es la similitud minima entre cada fotograma y la mediana; si es baja,
+    algo grande se movio delante de la camara durante la captura (un camion, por ejemplo).
+    """
     for intento in (1, 2):
         try:
             url = url_stream(cam, forzar=(intento == 2))
             with tempfile.TemporaryDirectory() as tmp:
                 subprocess.run(
-                    ["ffmpeg", "-y", "-loglevel", "error", "-i", url, "-vf", "fps=1",
+                    ["ffmpeg", "-y", "-loglevel", "error", "-i", url, "-vf", f"fps=1/{cada}",
                      "-frames:v", str(n), "-q:v", "2", str(Path(tmp) / "f_%02d.jpg")],
-                    check=True, timeout=180, capture_output=True)
+                    check=True, timeout=240, capture_output=True)
                 cuadros = [cv2.imread(str(p)) for p in sorted(Path(tmp).glob("f_*.jpg"))]
-            cuadros = [c for c in cuadros if c is not None]
+            cuadros = [c if c.shape[:2] == (ALTO, ANCHO) else cv2.resize(c, (ANCHO, ALTO))
+                       for c in cuadros if c is not None]
             if not cuadros:
                 raise RuntimeError("ffmpeg no entrego fotogramas")
             img = np.median(np.stack(cuadros), axis=0).astype(np.uint8)
-            return cv2.resize(img, (ANCHO, ALTO)) if img.shape[:2] != (ALTO, ANCHO) else img
+            consistencia = min(similitud(c, img) for c in cuadros) if len(cuadros) > 1 else 1.0
+            return img, consistencia
         except Exception:
             if intento == 2:
                 raise
+
+
+def _huella(img):
+    """Mapa de bordes chico y normalizado: sirve para comparar dos imagenes enteras."""
+    g = cv2.cvtColor(cv2.resize(img, (320, 180), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY).astype(np.float32)
+    m = cv2.GaussianBlur(np.hypot(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1)), (5, 5), 0)
+    return (m - m.mean()) / (m.std() + 1e-6)
+
+
+def similitud(a, b):
+    """1 = misma escena; capturas normales seguidas dan 0,82-0,99; un camion tapando, ~0,4.
+
+    Una crecida cambia solo el canal, una parte chica de la imagen, asi que casi no la baja.
+    """
+    return float((_huella(a) * _huella(b)).mean())
 
 
 def lineas_corte(cam):
@@ -263,22 +289,57 @@ def ciclo(cam, previo):
     rutas = Rutas(cam)
     rutas.crear()
     ahora = datetime.now()
-    img = capturar(cam)
+    img, consistencia = capturar(cam)
     propia = rutas.refs / f"ref_{ahora.hour:02d}.jpg"
     ref, hora_ref = referencia(rutas, ahora.hour)
     n = len(CAMARAS[cam]["cortes"])
+    archivo_previa, archivo_calidad = rutas.dir / "previa.jpg", rutas.dir / "calidad.json"
+    previa = cv2.imread(str(archivo_previa)) if archivo_previa.exists() else None
+    sim_previa = similitud(img, previa) if previa is not None else None
+    try:
+        calidad = json.loads(archivo_calidad.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        calidad = {"seguidas": 0}
+    # Solo una captura "limpia" puede ser referencia: estable durante la captura y parecida
+    # a la anterior (asi no queda de referencia un camion que justo pasaba delante).
+    apta = consistencia >= CONSIST_MIN and (sim_previa is None or sim_previa >= SIM_NUEVA_REF)
+    sin_dato = ([0.0] * n, [np.zeros(PUNTOS, bool)] * n)
+    no_confiable = False
 
     if ref is None or (hora_ref != ahora.hour and previo < NIVEL_ALERTA):
-        # Sin referencia para esta hora: se toma esta captura como "normal".
-        cv2.imwrite(str(propia), img)
-        nivel, cortes, mascaras, nota = 0.0, [0.0] * n, [np.zeros(PUNTOS, bool)] * n, "(calibrando)"
+        # Sin referencia para esta hora: se toma esta captura como "normal", si esta limpia.
+        if apta:
+            cv2.imwrite(str(propia), img)
+            nota = "(calibrando)"
+        else:
+            nota = "(calibrando: se espera una imagen limpia)"
+        nivel, (cortes, mascaras) = 0.0, sin_dato
     else:
-        nivel, cortes, mascaras = medir(cam, img, ref)
-        nota = "" if hora_ref == ahora.hour else f"(ref {hora_ref:02d} h)"
-        if nivel < NIVEL_REF and hora_ref == ahora.hour:
-            cv2.imwrite(str(propia), img)   # acompana cambios lentos de luz/pasto
+        sim_ref = similitud(img, ref)
+        if sim_ref < SIM_REF_MIN:
+            # Cambio la escena entera (camion delante, camara movida, lente sucio): no se mide.
+            no_confiable = True
+            nivel, (cortes, mascaras) = 0.0, sin_dato
+            nota = f"(imagen no confiable: se parece {sim_ref:.2f} a la referencia)"
+            # Si la vista quedo estable (o la referencia era mala), tras varias capturas
+            # limpias y parecidas entre si se toma la vista actual como referencia.
+            calidad["seguidas"] = calidad.get("seguidas", 0) + 1 if apta else 0
+            if calidad["seguidas"] >= RECALIBRAR_TRAS:
+                cv2.imwrite(str(propia), img)
+                calidad["seguidas"] = 0
+                nota = "(referencia renovada: la anterior ya no coincidia con la vista)"
+        else:
+            calidad["seguidas"] = 0
+            nivel, cortes, mascaras = medir(cam, img, ref)
+            nota = "" if hora_ref == ahora.hour else f"(ref {hora_ref:02d} h)"
+            if nivel < NIVEL_REF and hora_ref == ahora.hour and apta:
+                cv2.imwrite(str(propia), img)   # acompana cambios lentos de luz/pasto
+    cv2.imwrite(str(archivo_previa), cv2.resize(img, (640, 360), interpolation=cv2.INTER_AREA))
+    archivo_calidad.write_text(json.dumps({**calidad, "consistencia": round(consistencia, 3),
+                                           "sim_previa": None if sim_previa is None else round(sim_previa, 3)}),
+                               encoding="utf-8")
 
-    est = estado(nivel)
+    est = "NO_CONFIABLE" if no_confiable else estado(nivel)
     cv2.imwrite(str(rutas.ultimo), anotar(cam, img, nivel, mascaras, ahora, nota))
     # Tramos de cada linea (desde, hasta, cambio) para dibujarlos sobre el video en la web.
     rutas.ultimo_json.write_text(json.dumps({"fecha_hora": f"{ahora:%Y-%m-%d %H:%M}",

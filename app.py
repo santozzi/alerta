@@ -201,6 +201,8 @@ def tendencia(filas):
         return None
     pts = []
     for r in filas:
+        if r.get("estado") == "NO_CONFIABLE":
+            continue   # capturas obstruidas o con la camara movida: no cuentan para el ritmo
         try:
             pts.append((datetime.strptime(r["fecha_hora"], "%Y-%m-%d %H:%M"), float(r["nivel_pct"])))
         except (KeyError, ValueError):
