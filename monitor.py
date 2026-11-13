@@ -30,61 +30,44 @@ DATOS = BASE / "datos"
 ANCHO, ALTO = 1920, 1080
 
 
-def _polilinea(pts, t):
-    """Punto a fraccion t (0..1) del largo de una polilinea."""
-    pts = np.array(pts, dtype=float)
-    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    acum = np.concatenate([[0], np.cumsum(seg)])
-    d = t * acum[-1]
-    i = min(np.searchsorted(acum, d, side="right") - 1, len(seg) - 1)
-    f = (d - acum[i]) / seg[i]
-    return pts[i] + f * (pts[i + 1] - pts[i])
-
-
-def _cortes_por_bordes(izq, der, ts):
-    return [(tuple(_polilinea(izq, t).round().astype(int)), tuple(_polilinea(der, t).round().astype(int)))
-            for t in ts]
-
-
 # Cada camara: cortes transversales del canal en la imagen 1920x1080,
-# de lejos a cerca, como (punto en la orilla izquierda, punto en la derecha).
+# como (punto en la orilla izquierda, punto en la derecha), y en "agua" la parte de
+# cada corte donde normalmente hay agua (fraccion 0..1 del largo del corte).
+# Cortes y agua redibujados desde el panel /admin el 13/11/2026.
 CAMARAS = {
     "laspiur": {
         "nombre": "Sixto Laspiur y Av. Buenos Aires",
         "video": "DXpoL-oLaKo",
-        "cortes": _cortes_por_bordes(
-            [(748, 215), (800, 330), (860, 455), (930, 590)],
-            [(1010, 215), (1250, 320), (1560, 440), (1890, 580)],
-            [0.30, 0.50, 0.70, 0.90]),
-        "agua": [(0.18, 0.45), (0.20, 0.50), (0.22, 0.50), (0.17, 0.46)],
+        "cortes": [((755, 302), (1232, 287)), ((816, 404), (1293, 360)),
+                   ((872, 479), (1371, 439)), ((946, 584), (1434, 543))],
+        "agua": [(0.21, 0.424), (0.27, 0.522), (0.264, 0.602), (0.282, 0.703)],
     },
     "parque-de-mayo": {
         "nombre": "Parque de Mayo",
         "video": "HCNs0AIW1mU",
         # De borde a borde: el extremo izquierdo esta en el filo superior del muro y el
         # derecho en el filo del talud, asi 100 % es el canal lleno hasta arriba de los dos lados.
-        "cortes": [((758, 438), (1450, 560)), ((578, 495), (1420, 680)),
-                   ((375, 588), (1370, 800)), ((197, 657), (1310, 920))],
+        "cortes": [((758, 438), (1470, 564)), ((666, 542), (1360, 683)),
+                   ((577, 644), (1284, 783)), ((497, 783), (1139, 907))],
         # incluye las plantas flotantes, que se mueven y no son una crecida
-        "agua": [(0.45, 0.93), (0.47, 0.86), (0.47, 0.82), (0.50, 0.78)],
+        "agua": [(0.48, 0.838), (0.426, 0.844), (0.383, 0.816), (0.341, 0.801)],
     },
     "casanova": {
         "nombre": "Casanova y Fuerte Argentino",
         "video": "R5AjH5tHUvo",
-        # Los extremos izquierdos arrancan en el pasto, a la derecha de la senda peatonal.
-        "cortes": [((1040, 215), (1310, 215)), ((935, 270), (1380, 270)),
-                   ((815, 330), (1440, 340)), ((705, 400), (1460, 420))],
+        "cortes": [((755, 376), (1427, 413)), ((1041, 272), (1368, 287)),
+                   ((946, 343), (1355, 367)), ((822, 432), (1223, 454))],
         # incluye los juncos de la orilla, que se mueven con el viento
-        "agua": [(0.45, 0.72), (0.30, 0.78), (0.38, 0.72), (0.33, 0.68)],
+        "agua": [(0.301, 0.608), (0.527, 0.704), (0.232, 0.654), (0.25, 0.746)],
     },
-    # Aca solo se ve el cauce y la orilla derecha: los cortes van del borde
-    # izquierdo de la imagen hasta el filo del talud contra el pasto.
+    # Aca solo se ve el cauce y la orilla derecha: los cortes terminan en el filo
+    # del talud contra el pasto.
     "panama": {
         "nombre": "Panamá y 1° de Marzo",
         "video": "UG5Xw5Ph9ug",
-        "cortes": [((20, 260), (560, 260)), ((10, 420), (470, 420)),
-                   ((10, 580), (370, 580)), ((10, 760), (260, 760))],
-        "agua": [(0.42, 0.80), (0.22, 0.78), (0.0, 0.45), (0.0, 0.35)],
+        "cortes": [((246, 129), (677, 135)), ((233, 209), (586, 218)),
+                   ((120, 304), (517, 308)), ((31, 438), (419, 445))],
+        "agua": [(0.547, 0.832), (0.353, 0.78), (0.0, 0.766), (0.0, 0.684)],
     },
 }
 NOMBRES_CORTE = ["lejos", "medio", "medio", "cerca"]
