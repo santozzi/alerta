@@ -27,6 +27,7 @@ CLIMA_URL = (
     "https://api.open-meteo.com/v1/forecast?latitude=-38.72&longitude=-62.27"
     "&current=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m"
     "&hourly=precipitation,precipitation_probability&past_hours=24&forecast_hours=7"
+    "&minutely_15=wind_speed_10m,wind_direction_10m,wind_gusts_10m&past_minutely_15=2&forecast_minutely_15=1"
     "&timezone=America%2FArgentina%2FBuenos_Aires&wind_speed_unit=kmh")
 clima = {"datos": None, "error": None, "t": 0.0}
 marea_estado = {"datos": None, "error": None}
@@ -95,7 +96,17 @@ def resumir_clima(j):
              zip(h["time"], h["precipitation"], h.get("precipitation_probability") or [None] * len(h["time"]))]
     pasadas = [x for x in horas if x["t"][:13] < ahora]
     futuras = [x for x in horas if x["t"][:13] > ahora]
+    # Viento del intervalo anterior (15 min antes del actual), para comparar en la rosa.
+    anterior = None
+    m = j.get("minutely_15") or {}
+    previos = [(t, v, d, g) for t, v, d, g in zip(m.get("time", []), m.get("wind_speed_10m", []),
+                                                    m.get("wind_direction_10m", []), m.get("wind_gusts_10m", []))
+               if t < c["time"] and v is not None and d is not None]
+    if previos:
+        t, v, d, g = previos[-1]
+        anterior = {"hora": t, "viento": v, "direccion": d, "rafagas": g}
     return {
+        "viento_anterior": anterior,
         "hora": c["time"], "temp": c["temperature_2m"],
         "viento": c["wind_speed_10m"], "rafagas": c["wind_gusts_10m"], "direccion": c["wind_direction_10m"],
         "lluvia_ahora": c["precipitation"],

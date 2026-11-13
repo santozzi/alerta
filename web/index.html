@@ -128,7 +128,7 @@
   .cam .nombre { display: flex; justify-content: space-between; gap: 8px; }
   .cam .nombre a { font-weight: 400; font-size: .85rem; white-space: nowrap; }
   .rosa-cont { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 6px; }
-  .rosa-cont svg { width: 240px; max-width: 100%; height: auto; flex: none; }
+  .rosa-cont svg { width: 280px; max-width: 100%; height: auto; flex: none; }
   .rosa-txt { flex: 1 1 220px; color: var(--suave); font-size: .9rem; }
   .rosa-txt b { color: var(--texto); font-size: 1.4rem; display: block; font-variant-numeric: tabular-nums; }
   .rosa-txt p { margin: 6px 0; }
@@ -586,6 +586,15 @@ function rosaVientos() {
               text-anchor="middle" fill="${nombre === 'N' ? css('--critico') : css('--texto')}">${nombre}</text>`;
     }
   }
+  // vector anterior (15 min antes): flecha punteada gris con su direccion, sentido y modulo
+  const ant = k.viento_anterior;
+  if (ant && ant.viento >= 1) {
+    const la = Math.min(ant.viento, MAX) / MAX * R, gris = css('--suave');
+    s += `<g transform="rotate(${ant.direccion + 180})" opacity=".9">
+      <line x1="0" y1="0" x2="0" y2="${-Math.max(la - 14, 0)}" stroke="${gris}" stroke-width="3" stroke-dasharray="5 4" stroke-linecap="round"/>
+      <path d="M0 ${-la} L-8 ${-la + 15} L8 ${-la + 15} Z" fill="none" stroke="${gris}" stroke-width="2" stroke-dasharray="4 3"/>
+    </g>`;
+  }
   // vector: va hacia donde sopla el viento (desde la direccion de origen + 180)
   const largo = Math.min(k.viento, MAX) / MAX * R, largoR = Math.min(k.rafagas, MAX) / MAX * R;
   const col = css('--agua');
@@ -593,10 +602,10 @@ function rosaVientos() {
     s += `<circle r="5" fill="${col}"/>`;
   } else {
     s += `<g transform="rotate(${k.direccion + 180})">
-      <line x1="0" y1="${largo / 2}" x2="0" y2="${-largoR / 2}" stroke="${col}" stroke-width="2" stroke-dasharray="4 4" opacity=".6"/>
-      <line x1="0" y1="${largo / 2}" x2="0" y2="${-largo / 2 + 10}" stroke="${col}" stroke-width="6" stroke-linecap="round"/>
-      <path d="M0 ${-largo / 2 - 6} L-10 ${-largo / 2 + 12} L10 ${-largo / 2 + 12} Z" fill="${col}"/>
-      <circle cy="${largo / 2}" r="5" fill="${col}"/>
+      <line x1="0" y1="0" x2="0" y2="${-largoR}" stroke="${col}" stroke-width="2" stroke-dasharray="2 4" opacity=".55"/>
+      <line x1="0" y1="0" x2="0" y2="${-Math.max(largo - 16, 0)}" stroke="${col}" stroke-width="6" stroke-linecap="round"/>
+      <path d="M0 ${-largo} L-10 ${-largo + 18} L10 ${-largo + 18} Z" fill="${col}"/>
+      <circle r="5" fill="${col}"/>
     </g>`;
   }
   svg.innerHTML = s;
@@ -608,7 +617,16 @@ function rosaVientos() {
   const empuja = d >= SECTOR_EMPUJE[0] && d <= SECTOR_EMPUJE[1] && k.viento >= 20;
   txt.innerHTML = `<b>${Math.round(k.viento)} km/h del ${desde}</b>
     <p>Sopla desde el ${nom(desde)} (${Math.round(k.direccion)}°) hacia el ${nom(hacia)}. Ráfagas de ${Math.round(k.rafagas)} km/h (línea punteada).</p>
-    <p>La flecha va hacia donde sopla el viento y su largo es la velocidad; el borde del círculo son ${MAX} km/h.</p>
+    <p>La flecha sale del centro hacia donde sopla el viento y su largo es la velocidad; el borde del círculo son ${MAX} km/h.</p>
+    ${ant ? (() => {
+      const ia = Math.round(ant.direccion / 22.5) % 16;
+      const dv = Math.round(k.viento - ant.viento), dd = ((k.direccion - ant.direccion + 540) % 360) - 180;
+      const cambio = Math.abs(dv) < 1 && Math.abs(dd) < 5 ? 'casi sin cambios'
+        : [Math.abs(dv) >= 1 ? (dv > 0 ? `${dv} km/h más` : `${-dv} km/h menos`) : '',
+           Math.abs(dd) >= 5 ? `giró ${Math.abs(Math.round(dd))}° ${dd > 0 ? 'en sentido horario' : 'en sentido antihorario'}` : '']
+          .filter(Boolean).join(', ');
+      return `<p>Flecha punteada gris: el viento anterior (${ant.hora.slice(11, 16)}), ${Math.round(ant.viento)} km/h del ${PUNTOS16[ia]} (${Math.round(ant.direccion)}°). Desde entonces: ${cambio}.</p>`;
+    })() : ''}
     <p>${empuja
       ? '<span class="aviso">Viento fuerte del sector sur-sudeste: puede subir el agua del estuario y hacer que los canales desagüen peor.</span>'
       : 'Zona sombreada: viento del sector sur-sudeste, que puede subir el agua del estuario.'}</p>
